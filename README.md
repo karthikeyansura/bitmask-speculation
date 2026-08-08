@@ -23,6 +23,15 @@ Mask density is a scheduling heuristic. A small valid-token set need not produce
 high acceptance, and computing the signal has a cost. Both the policy and its
 overhead need to be measured against fixed-budget speculation.
 
+## Prefix acceptance
+
+If the draft proposes four tokens and the third disagrees with the target, only
+the first two are accepted. The target supplies the third token; the fourth
+proposal is discarded even if it would otherwise match.
+
+The [worked trace](docs/prefix-acceptance.md) follows token alignment, grammar
+rollback, the all-accepted bonus token, and the resulting counters.
+
 ## Evaluation
 
 The reference is target-only greedy decoding under the same grammar. Speculative

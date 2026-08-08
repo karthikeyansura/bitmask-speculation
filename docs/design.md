@@ -56,6 +56,9 @@ After a mismatch, logits for later positions condition on a rejected token and
 cannot be reused as predictions for the corrected prefix. Grammar masks for
 those positions are likewise speculative and must be discarded.
 
+The [prefix-acceptance walkthrough](prefix-acceptance.md) gives concrete traces
+for rejection, full acceptance, and termination at an output limit.
+
 ## Mask semantics
 
 For vocabulary size `V > 0`, a mask row contains `ceil(V / 32)` packed 32-bit
