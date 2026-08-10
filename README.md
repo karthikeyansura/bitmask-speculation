@@ -40,9 +40,16 @@ meaningful. Workloads should cover enums, nested objects, and free-text fields,
 including cases where speculation is slower.
 
 The [design document](docs/design.md) defines the decoding contract, experiment
-matrix, and validation requirements. Installation instructions and measured
-results will accompany validated implementations.
+matrix, and validation requirements. Measured results will accompany validated
+implementations.
+
+## Development
+
+The Python package uses a `src` layout and a Python 3.12 development environment.
+See [development setup](docs/development.md) for an editable installation and
+checks against a built wheel. GPU backends are introduced separately from the
+base package.
 
 ## License
 
-MIT.
+[MIT](LICENSE).
