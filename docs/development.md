@@ -15,20 +15,36 @@ uv run --locked python -c "import bitmask_speculation as bs; print(bs.__version_
 
 The lockfile records the Python development dependencies. `uv sync` creates an
 editable installation in `.venv` and installs the development group by default.
-It leaves the system Python environment alone. The current package exposes
-version metadata; the decoding API is introduced with the implementation.
+It leaves the system Python environment alone. The token-level decoding API
+also works with a caller-provided model without installing a framework.
 
 The base package has no runtime dependencies. Optional dependencies are
 installed through the extras listed in `pyproject.toml`.
+
+## Reference tests
+
+```bash
+uv run --locked pytest tests/unit
+uv sync --locked --extra models
+uv run --locked --extra models pytest
+```
+
+The `models` extra installs PyTorch and Transformers. Integration tests create
+small random models on the CPU, without downloading pretrained weights. They
+compare token sequences with Transformers greedy generation and check adapter
+failure cases. Without the extra, integration tests are skipped; a base-only
+run does not establish model compatibility.
 
 ## Package boundaries
 
 ```text
 pyproject.toml                 package metadata and build selection
-uv.lock                       resolved development dependencies
+uv.lock                       resolved development and optional dependencies
 .python-version               development interpreter selection
 src/bitmask_speculation/       installed Python package
 docs/                         design and development documentation
+tests/unit/                   framework-independent decoding tests
+tests/integration/            optional model adapter tests
 ```
 
 The `src` layout keeps imports separate from the working directory. Install the
@@ -37,7 +53,7 @@ to make imports succeed.
 
 The wheel contains only the selected package and its distribution metadata.
 The source distribution explicitly includes that source, documentation, license,
-and project configuration. Unrelated files in the checkout are not automatically
+project configuration, and the unit and integration tests. Unrelated files in the checkout are not automatically
 included. Extend the selection when a new component needs additional build inputs.
 
 Native kernel compilation is separate from installing the base package. GPU

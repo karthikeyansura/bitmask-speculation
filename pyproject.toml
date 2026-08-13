@@ -24,8 +24,15 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/karthikeyansura/bitmask-speculation"
 
+[project.optional-dependencies]
+models = ["torch>=2.6,<3", "transformers>=4.51,<6"]
+
 [dependency-groups]
-dev = ["build>=1.2.2,<2"]
+dev = ["build>=1.2.2,<2", "pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/integration"]
+addopts = ["--import-mode=importlib", "--strict-config", "--strict-markers"]
 
 [tool.hatch.version]
 path = "src/bitmask_speculation/__init__.py"
@@ -37,6 +44,8 @@ packages = ["src/bitmask_speculation"]
 include = [
     "/src/bitmask_speculation",
     "/docs",
+    "/tests/unit",
+    "/tests/integration",
     "/README.md",
     "/LICENSE",
     "/pyproject.toml",

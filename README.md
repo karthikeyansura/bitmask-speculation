@@ -32,6 +32,16 @@ proposal is discarded even if it would otherwise match.
 The [worked trace](docs/prefix-acceptance.md) follows token alignment, grammar
 rollback, the all-accepted bonus token, and the resulting counters.
 
+## Greedy reference
+
+The target-only token loop accepts an explicit prompt, output limit, and EOS IDs.
+Its result separates content tokens from the termination reason. An optional
+Transformers adapter selects the largest raw logit at the last prefix position.
+
+See the [reference API](docs/reference-decoding.md) for usage and edge cases.
+The adapter recomputes the full prefix; it establishes token behavior before
+cache management and grammar constraints are introduced.
+
 ## Evaluation
 
 The reference is target-only greedy decoding under the same grammar. Speculative
