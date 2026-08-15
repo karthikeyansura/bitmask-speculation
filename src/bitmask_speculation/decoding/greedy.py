@@ -6,6 +6,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from ._validation import token_id, vocabulary_size
+
 
 class GreedyModel(Protocol):
     """Return the greedy next token for a complete, nonempty input prefix.
@@ -29,14 +31,6 @@ class GreedyResult:
     eos_token_id: int | None = None
 
 
-def _token_id(value: int, vocab_size: int, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(f"{name} must be an integer token ID")
-    if not 0 <= value < vocab_size:
-        raise ValueError(f"{name} must be in [0, {vocab_size})")
-    return value
-
-
 def greedy_decode(
     model: GreedyModel,
     prompt_token_ids: Sequence[int],
@@ -58,21 +52,17 @@ def greedy_decode(
         raise TypeError("max_new_tokens must be an integer")
     if max_new_tokens < 0:
         raise ValueError("max_new_tokens must be nonnegative")
-    vocab_size = model.vocab_size
-    if isinstance(vocab_size, bool) or not isinstance(vocab_size, int):
-        raise TypeError("model.vocab_size must be an integer")
-    if vocab_size <= 0:
-        raise ValueError("model.vocab_size must be positive")
+    vocab_size = vocabulary_size(model.vocab_size)
 
-    prompt = tuple(_token_id(t, vocab_size, "prompt token") for t in prompt_token_ids)
+    prompt = tuple(token_id(t, vocab_size, "prompt token") for t in prompt_token_ids)
     if not prompt:
         raise ValueError("prompt_token_ids must include at least one token")
-    eos = frozenset(_token_id(t, vocab_size, "EOS token") for t in eos_token_ids)
+    eos = frozenset(token_id(t, vocab_size, "EOS token") for t in eos_token_ids)
     generated: list[int] = []
 
     for _ in range(max_new_tokens):
         prefix = prompt + tuple(generated)
-        token = _token_id(model.next_token(prefix), vocab_size, "model token")
+        token = token_id(model.next_token(prefix), vocab_size, "model token")
         if token in eos:
             return GreedyResult(tuple(generated), "eos", token)
         generated.append(token)

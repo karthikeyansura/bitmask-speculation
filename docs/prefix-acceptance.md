@@ -4,6 +4,10 @@ This trace applies the [decoding contract](design.md) to a small, explicit token
 vocabulary. Token IDs and target choices are specified for the example; they are
 not a model run or the tokenization of a particular model.
 
+The [verification primitive](prefix-verification.md) implements the prefix
+comparison below. Grammar state and request-level termination are separate from
+that primitive.
+
 ## Starting state
 
 The generated prefix is `{"op":`. The complete model input, including the prompt

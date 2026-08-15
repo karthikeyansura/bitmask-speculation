@@ -78,3 +78,5 @@ simple and must not be used as the sole throughput baseline for speculation.
 Performance comparisons need a validated cached target-only implementation
 under the same grammar and generation settings. Grammar masking, speculative
 verification, batching, and GPU kernel measurements are separate components.
+The [prefix verifier](prefix-verification.md) uses this greedy behavior to check
+one proposal round, without adding a generation loop.

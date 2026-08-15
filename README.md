@@ -29,6 +29,11 @@ If the draft proposes four tokens and the third disagrees with the target, only
 the first two are accepted. The target supplies the third token; the fourth
 proposal is discarded even if it would otherwise match.
 
+`verify_prefix` implements this ordered comparison. The Transformers adapter
+uses one target forward pass over the committed prefix and proposals, then
+selects only the rows requested by the consumer. See the
+[verification API](docs/prefix-verification.md) for its round-level contract.
+
 The [worked trace](docs/prefix-acceptance.md) follows token alignment, grammar
 rollback, the all-accepted bonus token, and the resulting counters.
 
