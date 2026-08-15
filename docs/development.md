@@ -35,6 +35,18 @@ compare token sequences with Transformers greedy generation and check adapter
 failure cases. Without the extra, integration tests are skipped; a base-only
 run does not establish model compatibility.
 
+## Grammar integration tests
+
+```bash
+uv sync --locked --extra models --extra grammar
+uv run --locked --extra models --extra grammar pytest
+```
+
+The `grammar` extra pins XGrammar 0.2.8. Tests compile small EBNF grammars and a
+JSON enum schema against explicit vocabularies; no tokenizer or model download
+is required. They cover state ownership, stop tokens, signed mask words and
+partial final words.
+
 ## Package boundaries
 
 ```text

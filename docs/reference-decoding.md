@@ -25,7 +25,9 @@ assert result.eos_token_id == 7
 
 The immutable result contains newly generated content, excluding the prompt and
 any selected EOS. `eos_token_id` records which stop token was selected, or `None`
-when the output limit was reached. Multiple EOS IDs are supported. They are
+when the output limit or grammar termination was reached. A grammar terminal
+content token is preserved, with stop reason `grammar`; a selected EOS takes
+precedence and remains separate from content. Multiple EOS IDs are supported. They are
 explicit inputs, never inferred from a tokenizer or generation configuration.
 
 Each prediction receives the complete prompt plus accepted content. The loop
@@ -76,7 +78,7 @@ The tests use small CPU models with neutral generation settings.
 This is a correctness reference. Full-prefix recomputation is intentionally
 simple and must not be used as the sole throughput baseline for speculation.
 Performance comparisons need a validated cached target-only implementation
-under the same grammar and generation settings. Grammar masking, speculative
-verification, batching, and GPU kernel measurements are separate components.
+under the same grammar and generation settings. Pass `grammar=state` for
+[constrained greedy decoding](grammar-selection.md).
 The [prefix verifier](prefix-verification.md) uses this greedy behavior to check
 one proposal round, without adding a generation loop.

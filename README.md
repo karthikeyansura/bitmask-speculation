@@ -41,11 +41,13 @@ rollback, the all-accepted bonus token, and the resulting counters.
 
 The target-only token loop accepts an explicit prompt, output limit, and EOS IDs.
 Its result separates content tokens from the termination reason. An optional
-Transformers adapter selects the largest raw logit at the last prefix position.
+Transformers adapter selects from the last prefix position, optionally restricted
+by request-owned grammar state.
 
 See the [reference API](docs/reference-decoding.md) for usage and edge cases.
 The adapter recomputes the full prefix; it establishes token behavior before
-cache management and grammar constraints are introduced.
+cache management is introduced. Both greedy decoding and prefix verification
+share the [constrained selection contract](docs/grammar-selection.md).
 
 ## Evaluation
 

@@ -26,6 +26,7 @@ Repository = "https://github.com/karthikeyansura/bitmask-speculation"
 
 [project.optional-dependencies]
 models = ["torch>=2.6,<3", "transformers>=4.51,<6"]
+grammar = ["xgrammar==0.2.8"]
 
 [dependency-groups]
 dev = ["build>=1.2.2,<2", "pytest>=8,<10"]

@@ -7,13 +7,15 @@ from typing import TYPE_CHECKING
 
 from ..decoding._validation import token_id, vocabulary_size
 from ..decoding.verification import VerifiedToken, verify_prefix
+from ..grammar import GrammarState, GrammarTerminatedError
+from ..grammar.selection import masked_argmax
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
 
 
 class TransformersGreedyModel:
-    """Uncached, single-device reference with raw-logit greedy selection.
+    """Uncached, single-device reference with optional grammar-constrained selection.
 
     Load the model, move it to its intended device, and call ``eval()`` before
     constructing the adapter. No tokenizer, weights, or device is chosen here.
@@ -62,33 +64,69 @@ class TransformersGreedyModel:
                 raise TypeError("model logits must have a floating-point dtype")
             return logits[0]
 
-    def _select_token(self, scores) -> int:
+    def _check_grammar(self, grammar: GrammarState | None) -> None:
+        if grammar is not None and vocabulary_size(grammar.vocab_size) != self.vocab_size:
+            raise ValueError("grammar and model vocabularies differ")
+
+    def _select_token(self, scores, grammar: GrammarState | None = None) -> int:
+        if grammar is not None:
+            if grammar.is_terminated():
+                raise GrammarTerminatedError("grammar has terminated")
+            token = masked_argmax(scores, grammar.allowed_token_ids())
+            if not grammar.accept_token(token):
+                raise ValueError("grammar rejected its selected token")
+            return token
         with self._torch.inference_mode():
             if self._torch.isnan(scores).any().item():
                 raise ValueError("next-token logits contain NaN")
             return int(scores.argmax().item())
 
-    def next_token(self, prefix: tuple[int, ...]) -> int:
-        """Predict after the full prefix; logits from earlier positions are unused."""
-        logits = self._forward_logits(self._prefix(prefix))
-        return self._select_token(logits[-1])
+    def next_token(
+        self, prefix: tuple[int, ...], *, grammar: GrammarState | None = None
+    ) -> int:
+        """Predict after the prefix and advance optional grammar state once."""
+        prefix = self._prefix(prefix)
+        self._check_grammar(grammar)
+        if grammar is not None and grammar.is_terminated():
+            raise GrammarTerminatedError("grammar has terminated")
+        logits = self._forward_logits(prefix)
+        return self._select_token(logits[-1], grammar)
 
     def verify_prefix(
-        self, prefix: Sequence[int], proposals: Sequence[int]
+        self, prefix: Sequence[int], proposals: Sequence[int], *,
+        grammar: GrammarState | None = None,
     ) -> Iterator[VerifiedToken]:
         """Run one forward pass, then lazily select a verified continuation.
 
         The fixed prefix length determines all row offsets. Selection stops at
         the first mismatch; later rows condition on rejected tokens. The caller
-        must stop consuming at EOS, its output limit, or grammar termination.
+        must stop consuming at EOS or its output limit. With grammar state, the
+        iterator advances only selected tokens and stops at grammar termination.
         Full-prefix logits remain owned by this iterator until it is released.
         """
         prefix = self._prefix(prefix)
         draft = tuple(token_id(t, self.vocab_size, "proposal token") for t in proposals)
+        self._check_grammar(grammar)
+        if grammar is not None and grammar.is_terminated():
+            return iter(())
         logits = self._forward_logits(prefix + draft)
         start = len(prefix) - 1
-        return verify_prefix(
+        choices = verify_prefix(
             draft,
-            lambda i: self._select_token(logits[start + i]),
+            lambda i: self._select_token(logits[start + i], grammar),
             vocab_size=self.vocab_size,
         )
+        if grammar is None:
+            return choices
+
+        def constrained_choices() -> Iterator[VerifiedToken]:
+            try:
+                while not grammar.is_terminated():
+                    event = next(choices, None)
+                    if event is None:
+                        return
+                    yield event
+            finally:
+                choices.close()
+
+        return constrained_choices()

@@ -66,7 +66,9 @@ The adapter performs raw-logit selection with the same single-device and context
 capacity restrictions as the greedy reference. The entire prefix plus proposal
 sequence must fit the model context. Early iterator termination saves selection
 work, not the forward computation already performed. This implementation makes
-no speedup claim and applies no grammar mask.
+no speedup claim. Passing `grammar=state` enables [constrained selection and
+state transitions](grammar-selection.md). This adapter stops at grammar
+termination automatically; the caller still owns EOS and output limits.
 
 ## Validation
 
