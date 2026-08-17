@@ -49,6 +49,16 @@ The adapter recomputes the full prefix; it establishes token behavior before
 cache management is introduced. Both greedy decoding and prefix verification
 share the [constrained selection contract](docs/grammar-selection.md).
 
+## Speculative requests
+
+`speculative_decode` runs unconstrained drafting followed by target verification,
+with optional target-side grammar state. It caps each proposal at the remaining
+output budget and stops only on a target-confirmed EOS, grammar termination, or
+the length limit. An empty draft still takes a target step.
+
+The [request API](docs/speculative-decoding.md) defines termination precedence,
+state ownership, and the current full-prefix implementation's limits.
+
 ## Evaluation
 
 The reference is target-only greedy decoding under the same grammar. Speculative
