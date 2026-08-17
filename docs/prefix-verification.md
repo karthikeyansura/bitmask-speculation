@@ -40,7 +40,8 @@ another event. They should release or close an unused iterator promptly.
 The primitive does not own a model cache, tokenizer, grammar matcher, output
 budget, or EOS policy. It is a round-level building block, not a complete
 speculative generation API. Collecting all events is appropriate only when no
-request-level stop condition intervenes.
+request-level stop condition intervenes. The [speculative request
+loop](speculative-decoding.md) owns these conditions across rounds.
 
 ## One-forward Transformers verification
 

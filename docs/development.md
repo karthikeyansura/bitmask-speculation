@@ -47,6 +47,14 @@ JSON enum schema against explicit vocabularies; no tokenizer or model download
 is required. They cover state ownership, stop tokens, signed mask words and
 partial final words.
 
+## Request-loop tests
+
+The same test command covers complete speculative requests. Framework-independent
+fixtures compare against greedy decoding across proposal budgets, output limits,
+and EOS placements. Tiny CPU model pairs repeat the comparison with independent
+grammar states and both XGrammar stop-token modes. No AWS instance, pretrained
+weights, CUDA compilation, or Triton execution is involved in these tests.
+
 ## Package boundaries
 
 ```text

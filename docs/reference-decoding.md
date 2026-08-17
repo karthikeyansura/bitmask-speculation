@@ -79,6 +79,7 @@ This is a correctness reference. Full-prefix recomputation is intentionally
 simple and must not be used as the sole throughput baseline for speculation.
 Performance comparisons need a validated cached target-only implementation
 under the same grammar and generation settings. Pass `grammar=state` for
-[constrained greedy decoding](grammar-selection.md).
+[constrained greedy decoding](grammar-selection.md). The [speculative request loop](speculative-decoding.md) uses the same result and
+termination contract.
 The [prefix verifier](prefix-verification.md) uses this greedy behavior to check
 one proposal round, without adding a generation loop.

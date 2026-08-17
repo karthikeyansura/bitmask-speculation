@@ -8,7 +8,7 @@ from typing import Literal, Protocol, cast
 
 from ..grammar import GrammarState
 
-from ._validation import token_id, vocabulary_size
+from ._validation import request_inputs, token_id, vocabulary_size
 
 
 class GreedyModel(Protocol):
@@ -61,18 +61,12 @@ def greedy_decode(
     A constrained model advances grammar state once per choice. Sampling is
     outside this reference's scope.
     """
-    if isinstance(max_new_tokens, bool) or not isinstance(max_new_tokens, int):
-        raise TypeError("max_new_tokens must be an integer")
-    if max_new_tokens < 0:
-        raise ValueError("max_new_tokens must be nonnegative")
     vocab_size = vocabulary_size(model.vocab_size)
-
-    prompt = tuple(token_id(t, vocab_size, "prompt token") for t in prompt_token_ids)
-    if not prompt:
-        raise ValueError("prompt_token_ids must include at least one token")
-    eos = frozenset(token_id(t, vocab_size, "EOS token") for t in eos_token_ids)
-    if grammar is not None and vocabulary_size(grammar.vocab_size) != vocab_size:
-        raise ValueError("grammar and model vocabularies differ")
+    prompt, eos = request_inputs(
+        vocab_size, prompt_token_ids, max_new_tokens=max_new_tokens,
+        eos_token_ids=eos_token_ids,
+        grammar_vocab_size=None if grammar is None else vocabulary_size(grammar.vocab_size),
+    )
     generated: list[int] = []
 
     for _ in range(max_new_tokens):
