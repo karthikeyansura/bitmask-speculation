@@ -79,7 +79,8 @@ The constrained greedy reference preserves the final content token and returns
 precedence and is excluded from content. Zero output budget returns `length`
 without reading or advancing the matcher. Vocabulary compatibility is still
 validated. The [speculative request loop](speculative-decoding.md) enforces these
-boundaries across rounds.
+boundaries across rounds. [Proposal accounting](proposal-accounting.md) retains
+the discarded draft tail in proposed counts without counting it as verified.
 
 A partially consumed iterator leaves state at exactly its yielded prefix. Keep
 exclusive ownership of that state while the iterator is active; do not interleave

@@ -102,7 +102,7 @@ def test_rejection_restarts_draft_from_corrected_prefix():
     prompt = [0]
     result = speculative_decode(target, draft, prompt, max_new_tokens=4, draft_budget=3)
     reference = greedy_decode(FunctionModel(target.rule), prompt, max_new_tokens=4)
-    assert result == reference
+    assert result.generation == reference
     assert draft.prefixes[:4] == [(0,), (0, 5), (0, 5, 5), (0, 1)]
     assert prompt == [0]
 
@@ -248,7 +248,7 @@ def test_deterministic_request_matrix_matches_greedy():
             target, draft, prefix, max_new_tokens=limit, draft_budget=budget, eos_token_ids=eos
         )
         reference = greedy_decode(FunctionModel(rule), prefix, max_new_tokens=limit, eos_token_ids=eos)
-        assert result == reference
+        assert result.generation == reference
         assert target.closed == len(target.rounds)
 
 

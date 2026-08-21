@@ -57,7 +57,10 @@ output budget and stops only on a target-confirmed EOS, grammar termination, or
 the length limit. An empty draft still takes a target step.
 
 The [request API](docs/speculative-decoding.md) defines termination precedence,
-state ownership, and the current full-prefix implementation's limits.
+state ownership, and the current full-prefix implementation's limits. Results
+include [proposal accounting](docs/proposal-accounting.md): proposed, verified,
+accepted, emitted, and round counts, with separate acceptance and proposal-yield
+ratios.
 
 ## Evaluation
 

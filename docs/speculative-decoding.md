@@ -23,9 +23,12 @@ The draft implements `GreedyModel`. `TransformersGreedyModel` supports either ro
 Both must agree on token-ID meanings, tokenizer behavior, and special-token
 conventions. Vocabulary-size equality is checked but does not prove compatibility.
 
-The return value is the same immutable `GreedyResult` as the target-only reference:
-content token IDs, a stop reason (`eos`, `grammar`, or `length`), and the selected
-EOS ID when applicable. The prompt and EOS are excluded from content.
+The immutable `SpeculativeResult` contains `generation` (a `GreedyResult`) and
+`accounting` (a `ProposalAccounting`). The convenience properties `token_ids`,
+`stop_reason`, and `eos_token_id` retain their meanings; prompt and EOS remain
+excluded from content. Compare `result.generation` with the target-only reference
+when checking decoding equivalence. Comparing two whole speculative results also
+compares their counters. See [proposal accounting](proposal-accounting.md).
 
 ## One round
 
@@ -74,8 +77,8 @@ rolled back automatically. State belongs exclusively to one active request.
 ## Scope
 
 The reference path handles one request at a time, with one fixed draft budget,
-optional target-side grammar, and greedy token selection. It has no request
-counters, timing instrumentation, draft-side grammar, KV-cache reuse, scheduling
+optional target-side grammar, and greedy token selection. It has request-level
+proposal counters, but no timing instrumentation, draft-side grammar, KV-cache reuse, scheduling
 policy, sampling, or batching yet. The full prompt plus proposal sequence must
 fit the model's context capacity; no implicit truncation is applied.
 

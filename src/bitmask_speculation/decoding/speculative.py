@@ -1,12 +1,38 @@
 """Request-level greedy speculation with target-controlled termination."""
 
 from collections.abc import Iterable, Iterator, Sequence
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Literal, Protocol
 
 from ..grammar import GrammarState
 from ._validation import request_inputs, token_id, vocabulary_size
+from .accounting import ProposalAccounting, _RoundAccounting
 from .greedy import GreedyModel, GreedyResult
 from .verification import VerifiedToken
+
+
+@dataclass(frozen=True, slots=True)
+class SpeculativeResult:
+    """Generation semantics and proposal accounting from the same request."""
+
+    generation: GreedyResult
+    accounting: ProposalAccounting
+
+    def __post_init__(self) -> None:
+        if self.accounting.emitted != len(self.generation.token_ids):
+            raise ValueError("emitted count must equal the content token count")
+
+    @property
+    def token_ids(self) -> tuple[int, ...]:
+        return self.generation.token_ids
+
+    @property
+    def stop_reason(self) -> Literal["eos", "length", "grammar"]:
+        return self.generation.stop_reason
+
+    @property
+    def eos_token_id(self) -> int | None:
+        return self.generation.eos_token_id
 
 
 class VerificationTarget(Protocol):
@@ -36,7 +62,7 @@ def speculative_decode(
     draft_budget: int = 5,
     eos_token_ids: Iterable[int] = (),
     grammar: GrammarState | None = None,
-) -> GreedyResult:
+) -> SpeculativeResult:
     """Generate a target-greedy continuation with unconstrained draft proposals.
 
     Drafting stops before its EOS choice; even an empty draft is verified by the
@@ -45,7 +71,7 @@ def speculative_decode(
     Model vocabularies must have identical token meanings, not just equal sizes.
 
     A zero output budget validates inputs without calling either model. The
-    result uses the same content-token and termination contract as greedy_decode.
+    generation uses the same contract as greedy_decode; accounting is separate.
     """
     vocab_size = vocabulary_size(target.vocab_size)
     prompt, eos = request_inputs(
@@ -60,10 +86,19 @@ def speculative_decode(
     if draft_budget <= 0:
         raise ValueError("draft_budget must be positive")
     generated: list[int] = []
+    proposed = verified = accepted = rounds = 0
+
+    def finish(
+        reason: Literal["eos", "length", "grammar"], eos_token: int | None = None
+    ) -> SpeculativeResult:
+        return SpeculativeResult(
+            GreedyResult(tuple(generated), reason, eos_token),
+            ProposalAccounting(proposed, verified, accepted, len(generated), rounds),
+        )
 
     while len(generated) < max_new_tokens:
         if grammar is not None and grammar.is_terminated():
-            return GreedyResult(tuple(generated), "grammar")
+            return finish("grammar")
         prefix = prompt + tuple(generated)
         proposals: list[int] = []
         remaining = max_new_tokens - len(generated)
@@ -74,6 +109,9 @@ def speculative_decode(
                 break
             proposals.append(token)
 
+        proposed += len(proposals)
+        rounds += 1
+        round_accounting = _RoundAccounting(tuple(proposals))
         choices = (
             target.verify_prefix(prefix, tuple(proposals)) if grammar is None
             else target.verify_prefix(prefix, tuple(proposals), grammar=grammar)
@@ -82,18 +120,23 @@ def speculative_decode(
         try:
             for event in choices:
                 token = token_id(event.token_id, vocab_size, "target token")
+                compared, matched = round_accounting.record(event)
+                verified += compared
+                accepted += matched
                 if token in eos:
-                    return GreedyResult(tuple(generated), "eos", token)
+                    return finish("eos", token)
                 generated.append(token)
                 if grammar is not None and grammar.is_terminated():
-                    return GreedyResult(tuple(generated), "grammar")
+                    return finish("grammar")
                 if len(generated) == max_new_tokens:
-                    return GreedyResult(tuple(generated), "length")
+                    return finish("length")
         finally:
             close = getattr(choices, "close", None)
             if close is not None:
                 close()
         if len(generated) == before:
             raise RuntimeError("target verification made no progress")
+        if not round_accounting.finished:
+            raise RuntimeError("verification ended before correction or bonus")
 
-    return GreedyResult(tuple(generated), "length")
+    return finish("length")
