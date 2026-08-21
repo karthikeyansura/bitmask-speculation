@@ -30,7 +30,7 @@ def test_distinct_causal_models_match_target_greedy_across_budgets(seed):
                         target, draft, prompt, max_new_tokens=limit,
                         draft_budget=budget, eos_token_ids=eos,
                     )
-                    assert result == expected
+                    assert result.generation == expected
 
 
 @pytest.mark.parametrize("terminate_without_stop", [False, True])
@@ -61,7 +61,7 @@ def test_xgrammar_request_matches_target_reference(seed, terminate_without_stop)
                     target, draft, prompt, max_new_tokens=limit, draft_budget=budget,
                     eos_token_ids=[2], grammar=actual_state,
                 )
-                assert result == expected
+                assert result.generation == expected
                 assert actual_state.is_terminated() == reference_state.is_terminated()
                 if not actual_state.is_terminated():
                     assert actual_state.allowed_token_ids() == reference_state.allowed_token_ids()

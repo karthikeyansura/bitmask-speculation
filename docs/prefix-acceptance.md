@@ -139,3 +139,8 @@ Acceptance is `accepted / verified`; proposal yield is `accepted / proposed`.
 Neither is throughput. The full-acceptance scenario emits four tokens in one
 round, but a speedup claim also needs the draft, target, grammar, transfer, and
 synchronization costs measured against the same target-only workload.
+
+The request API returns these counts through `result.accounting`. The
+[accounting contract](proposal-accounting.md) also defines EOS cases, empty
+requests, round totals, and undefined ratios. Tests execute all five scenarios
+above against the request loop.
