@@ -56,6 +56,23 @@ grammar states and both XGrammar stop-token modes. Accounting tests compare repo
 independently observed proposal and consumed-token sequences, including EOS and
 grammar termination.
 
+## Baseline workload checks
+
+```bash
+uv sync --locked --extra models --extra grammar --extra benchmarks
+uv run --locked --extra models --extra grammar --extra benchmarks pytest
+```
+
+The `benchmarks` extra adds JSON Schema validation without adding a dependency
+to the base decoding package. Tests check workload loading, record round-trips,
+weighted aggregation and tiny CPU model integrations. Synthetic durations in
+unit tests exercise arithmetic only; integration records are untimed.
+
+See [baseline methodology](baseline-workloads.md) for record fields, eligibility
+checks and timing boundaries. Workload data ships in the source distribution;
+the installed wheel contains the record API and accepts an explicit manifest
+path. It never searches the current directory for a benchmark checkout.
+
 ## Package boundaries
 
 ```text
@@ -66,6 +83,8 @@ src/bitmask_speculation/       installed Python package
 docs/                         design and development documentation
 tests/unit/                   framework-independent decoding tests
 tests/integration/            optional model adapter tests
+benchmarks/baseline.json       versioned baseline cases
+benchmarks/schemas/            self-contained JSON schemas
 ```
 
 The `src` layout keeps imports separate from the working directory. Install the

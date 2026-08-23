@@ -69,6 +69,11 @@ variants must preserve its token sequence before throughput comparisons are
 meaningful. Workloads should cover enums, nested objects, and free-text fields,
 including cases where speculation is slower.
 
+The [baseline workloads](docs/baseline-workloads.md) define contact-card, tool-call,
+and nested-object cases, paired target-only references, and lossless trial
+records. Completion, schema validity, and exact token agreement are recorded
+separately. Aggregate rates use summed counts and durations.
+
 The [design document](docs/design.md) defines the decoding contract, experiment
 matrix, and validation requirements. Measured results will accompany validated
 implementations.
