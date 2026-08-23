@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "contact-card",
+      "prompt": "Return only a JSON object for Alice, a 30-year-old software engineer in Seattle. Include name, age, city, and email.",
+      "schema": "schemas/schema_simple.json",
+      "max_new_tokens": 128
+    },
+    {
+      "case_id": "tool-search",
+      "prompt": "Return only a JSON tool call that searches for CUDA masked argmax. Set function to search and arguments.query to the search text.",
+      "schema": "schemas/schema_tool_call.json",
+      "max_new_tokens": 128
+    },
+    {
+      "case_id": "nested-users",
+      "prompt": "Return only a JSON object containing one user named Alice, with an address in Seattle, USA, and a systems tag. Include total_count and page.",
+      "schema": "schemas/schema_nested.json",
+      "max_new_tokens": 256
+    }
+  ]
+}
