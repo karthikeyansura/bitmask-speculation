@@ -1,9 +1,9 @@
 # Baseline workloads and records
 
-The first workload set compares unconstrained and target-constrained greedy
-speculation with their respective target-only references. Draft proposals are
-unconstrained in both cases. Draft-side masking, adaptive budgets, kernel
-comparisons and performance sweeps are separate experiments.
+The workload set compares unconstrained, target-constrained and jointly
+constrained greedy speculation with their respective target-only references.
+C2 versus C3 isolates draft-side masking. Adaptive budgets, kernel comparisons
+and performance sweeps are separate experiments.
 
 ## Cases and references
 
@@ -19,10 +19,14 @@ workload fingerprint covers the ID, full prompt, schema and output limit.
 | `target_constrained` | No draft | Enabled | Defines constrained behavior |
 | `c1` | Disabled | Disabled | `target_unconstrained` |
 | `c2` | Disabled | Enabled | `target_constrained` |
+| `c3` | Enabled | Enabled | `target_constrained` |
 
 Use the same prompt serialization, token IDs, output limit, EOS IDs, precision
 and target model revision for each paired comparison. Construct fresh grammar
 state for each constrained request. Never reuse state consumed by a reference.
+For C3, pass `constrain_draft=True` and a forkable grammar to `speculative_decode`.
+A trial's variant label describes how its caller configured generation; the
+recording API does not infer or verify that configuration from output tokens.
 C1 is a diagnostic, not a structured-generation baseline. Its schema validity
 is still recorded, but invalid JSON does not alone indicate a C1 decoding bug.
 Distinct prompts avoid repeating an identical unconstrained request under three

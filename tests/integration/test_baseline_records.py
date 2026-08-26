@@ -13,8 +13,9 @@ from bitmask_speculation.grammar.xgrammar import XGrammarState
 from bitmask_speculation.models.transformers import TransformersGreedyModel
 
 
-@pytest.mark.parametrize("constrained", [False, True])
-def test_cpu_model_records_roundtrip_and_keep_reference_contract(constrained):
+@pytest.mark.parametrize("variant", ["c1", "c2", "c3"])
+def test_cpu_model_records_roundtrip_and_keep_reference_contract(variant):
+    constrained = variant != "c1"
     vocabulary = ['"', "a", "b", "<eos>", "z"]
     models = []
     for seed in [7, 19]:
@@ -28,7 +29,7 @@ def test_cpu_model_records_roundtrip_and_keep_reference_contract(constrained):
     fresh = lambda: XGrammarState(grammar) if constrained else None
     decode = lambda ids: "".join(vocabulary[i] for i in ids)
     metadata = {
-        "source_revision": "fixture:step09", "target_revision": "fixture:gpt2-seed7",
+        "source_revision": "fixture:step10", "target_revision": "fixture:gpt2-seed7",
         "draft_revision": "fixture:gpt2-seed19", "tokenizer_revision": "fixture:five-tokens",
         "device": "cpu", "precision": "float32", "dependencies": "tiny-model-fixture",
         "timing_scope": "untimed",
@@ -37,8 +38,8 @@ def test_cpu_model_records_roundtrip_and_keep_reference_contract(constrained):
     for budget in [1, 4]:
         records = []
         for repetition in range(2):
-            actual = speculative_decode(target, draft, [4], max_new_tokens=8, draft_budget=budget, eos_token_ids=[3], grammar=fresh())
-            record = record_trial(case, variant="c2" if constrained else "c1", result=actual, reference=reference, decode=decode, prompt_token_ids=[4], eos_token_ids=[3], metadata=metadata, draft_budget=budget, repetition=repetition)
+            actual = speculative_decode(target, draft, [4], max_new_tokens=8, draft_budget=budget, eos_token_ids=[3], grammar=fresh(), constrain_draft=variant == "c3")
+            record = record_trial(case, variant=variant, result=actual, reference=reference, decode=decode, prompt_token_ids=[4], eos_token_ids=[3], metadata=metadata, draft_budget=budget, repetition=repetition)
             records.append(TrialRecord.from_json(record.to_json()))
             assert record.exact_match
             if constrained:

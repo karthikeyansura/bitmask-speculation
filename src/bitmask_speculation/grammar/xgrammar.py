@@ -36,6 +36,16 @@ class XGrammarState:
     def vocab_size(self) -> int:
         return self._vocab_size
 
+    def fork(self) -> XGrammarState:
+        """Copy matcher state for one draft round; keep mask writes isolated."""
+        branch = object.__new__(XGrammarState)
+        branch._vocab_size = self._vocab_size
+        branch._matcher = self._matcher.fork()
+        branch._mask = self._mask.new_empty(self._mask.shape)
+        # This index tensor is read-only; only matcher and mask storage mutate.
+        branch._ids = self._ids
+        return branch
+
     def is_terminated(self) -> bool:
         return self._matcher.is_terminated()
 

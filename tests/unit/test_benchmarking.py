@@ -128,7 +128,7 @@ def test_invalid_timings_rejected(seconds):
 
 
 @pytest.mark.parametrize("change", [
-    {"variant": "c3"}, {"draft_budget": 0}, {"prompt_token_ids": ()},
+    {"variant": "unknown"}, {"draft_budget": 0}, {"prompt_token_ids": ()},
     {"token_ids": (9,)}, {"eos_token_id": 8}, {"token_ids": tuple(range(20))},
     {"metadata_json": "{}"}, {"recorded_at": "2026-11-06T12:00:00"},
     {"accounting": None}, {"stop_reason": "unknown"},
@@ -207,3 +207,15 @@ def test_decode_failure_is_not_mislabeled_invalid_json():
 def test_untimed_metadata_cannot_label_a_timing():
     with pytest.raises(ValueError, match="untimed"):
         replace(trial(decode_seconds=1), metadata_json=json.dumps({**META, "timing_scope": "untimed"}))
+
+
+def test_c3_records_roundtrip_without_pooling_c2():
+    c2 = trial()
+    c3 = replace(c2, variant="c3", repetition=1)
+    assert TrialRecord.from_json(c3.to_json()) == c3
+    assert aggregate_trials([c3])["exact_matches"] == 1
+    with pytest.raises(ValueError):
+        aggregate_trials([c2, c3])
+    for change in ({"draft_budget": None}, {"accounting": None}):
+        with pytest.raises((ValueError, TypeError)):
+            replace(c3, **change)

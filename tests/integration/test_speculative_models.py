@@ -33,9 +33,10 @@ def test_distinct_causal_models_match_target_greedy_across_budgets(seed):
                     assert result.generation == expected
 
 
+@pytest.mark.parametrize("constrain_draft", [False, True])
 @pytest.mark.parametrize("terminate_without_stop", [False, True])
 @pytest.mark.parametrize("seed", [7, 19, 41])
-def test_xgrammar_request_matches_target_reference(seed, terminate_without_stop):
+def test_xgrammar_request_matches_target_reference(seed, terminate_without_stop, constrain_draft):
     xgr = pytest.importorskip("xgrammar")
     from bitmask_speculation.grammar.xgrammar import XGrammarState
 
@@ -59,7 +60,7 @@ def test_xgrammar_request_matches_target_reference(seed, terminate_without_stop)
                 actual_state = state()
                 result = speculative_decode(
                     target, draft, prompt, max_new_tokens=limit, draft_budget=budget,
-                    eos_token_ids=[2], grammar=actual_state,
+                    eos_token_ids=[2], grammar=actual_state, constrain_draft=constrain_draft,
                 )
                 assert result.generation == expected
                 assert actual_state.is_terminated() == reference_state.is_terminated()

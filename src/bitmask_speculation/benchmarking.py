@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .decoding import GreedyResult, ProposalAccounting, SpeculativeResult
 
-_VARIANTS = {"target_unconstrained", "target_constrained", "c1", "c2"}
+_VARIANTS = {"target_unconstrained", "target_constrained", "c1", "c2", "c3"}
 _METADATA = {
     "source_revision", "target_revision", "draft_revision", "tokenizer_revision",
     "device", "precision", "dependencies", "timing_scope",
@@ -122,7 +122,7 @@ class TrialRecord:
     def __post_init__(self) -> None:
         if self.variant not in _VARIANTS:
             raise ValueError("unknown baseline variant")
-        speculative = self.variant in {"c1", "c2"}
+        speculative = self.variant in {"c1", "c2", "c3"}
         if speculative:
             _integer(self.draft_budget, "draft_budget", 1)
         elif self.draft_budget is not None:
