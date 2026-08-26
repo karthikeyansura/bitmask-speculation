@@ -51,10 +51,15 @@ share the [constrained selection contract](docs/grammar-selection.md).
 
 ## Speculative requests
 
-`speculative_decode` runs unconstrained drafting followed by target verification,
-with optional target-side grammar state. It caps each proposal at the remaining
-output budget and stops only on a target-confirmed EOS, grammar termination, or
-the length limit. An empty draft still takes a target step.
+`speculative_decode` supports unconstrained speculation (C1), target-only grammar
+constraints (C2), and constraints on both models (C3). Set `constrain_draft=True`
+with a forkable grammar to enable C3. Each round drafts on independent matcher
+state, which is discarded before the target verifies the proposals.
+
+The loop caps each proposal at the remaining output budget and stops only on a
+target-confirmed EOS, grammar termination, or the length limit. An empty draft
+still takes a target step. See [constrained drafting](docs/constrained-drafting.md)
+for state isolation and rollback semantics.
 
 The [request API](docs/speculative-decoding.md) defines termination precedence,
 state ownership, and the current full-prefix implementation's limits. Results

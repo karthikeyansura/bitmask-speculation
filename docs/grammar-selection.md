@@ -21,8 +21,9 @@ The Transformers adapter performs these operations for every consumed choice:
 
 Draft proposals never advance the target grammar. At a mismatch, the target
 correction advances state once; rejected proposals and their tail do not. This
-requires no rollback because target state never visits the rejected path. Draft
-side constraints and speculative matcher rollback are separate work.
+requires no rollback because target state never visits the rejected path.
+[Constrained drafting](constrained-drafting.md) uses a separate matcher fork;
+discarding that fork restores the round boundary without rewinding the target.
 
 `masked_argmax` gathers valid IDs instead of setting invalid scores to negative
 infinity. That preserves validity even when all valid scores are negative

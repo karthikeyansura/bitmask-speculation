@@ -2,7 +2,8 @@
 
 `speculative_decode` combines draft proposals and lazy target verification into
 one bounded request. Both models use greedy selection. The optional grammar
-constrains the target; drafting remains unconstrained.
+constrains the target. `constrain_draft=True` also applies that grammar to draft
+selection through a fresh fork at each round boundary.
 
 Given already initialized target and draft model adapters:
 
@@ -19,7 +20,8 @@ result = speculative_decode(
 ```
 
 The target implements `VerificationTarget`, including lazy prefix verification.
-The draft implements `GreedyModel`. `TransformersGreedyModel` supports either role.
+The draft implements `GreedyModel`, or `ConstrainedGreedyModel` when constrained
+proposals are enabled. `TransformersGreedyModel` supports either role.
 Both must agree on token-ID meanings, tokenizer behavior, and special-token
 conventions. Vocabulary-size equality is checked but does not prove compatibility.
 
@@ -33,8 +35,10 @@ compares their counters. See [proposal accounting](proposal-accounting.md).
 ## One round
 
 1. Construct the authoritative prefix from the prompt and emitted content.
-2. Draft up to `min(draft_budget, remaining_output_tokens)` tokens. Stop drafting
-   before a selected EOS and do not add that EOS to the proposal sequence.
+2. Draft up to `min(draft_budget, remaining_output_tokens)` tokens. With draft
+   constraints, advance only a fork of the committed grammar and stop when that
+   branch terminates. Do not add a selected EOS to the proposal sequence. Discard
+   the branch before verification, including its speculative EOS transition.
 3. Verify the proposals against the target. Empty proposals request one
    target-only fallback choice; a draft EOS never ends the request by itself.
 4. Consume target-confirmed choices in order, checking request termination after
@@ -77,9 +81,9 @@ rolled back automatically. State belongs exclusively to one active request.
 ## Scope
 
 The reference path handles one request at a time, with one fixed draft budget,
-optional target-side grammar, and greedy token selection. It has request-level
-proposal counters, but no timing instrumentation, draft-side grammar, KV-cache reuse, scheduling
-policy, sampling, or batching yet. The full prompt plus proposal sequence must
+optional grammar constraints on the target or both models, and greedy selection.
+It has request-level proposal counters, but no timing instrumentation, KV-cache
+reuse, scheduling policy, sampling, or batching yet. The full prompt plus proposal sequence must
 fit the model's context capacity; no implicit truncation is applied.
 
 Tests compare content, EOS identity, stop reason, and final grammar state against
@@ -87,4 +91,6 @@ target-only greedy decoding. They cover partial and full acceptance, empty-draft
 fallback, target EOS at different positions, output limits inside a round,
 terminal grammar transitions, corrected-prefix reuse, and iterator cleanup.
 Tiny randomly initialized causal models and real XGrammar matchers validate
-integration on CPU without downloading pretrained weights.
+integration on CPU without downloading pretrained weights. Constrained drafting
+also checks rejection at every proposal position, independent branch transitions,
+and parent state after draft errors. See [draft constraints](constrained-drafting.md).
