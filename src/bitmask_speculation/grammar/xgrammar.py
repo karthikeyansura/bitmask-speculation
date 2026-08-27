@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..decoding._validation import token_id, vocabulary_size
+from .density import packed_mask_density
 from .state import GrammarTerminatedError
 
 if TYPE_CHECKING:
@@ -58,6 +59,15 @@ class XGrammarState:
         # Indexing only vocabulary IDs excludes padding bits in the final word.
         valid = ((self._mask[0, self._ids // 32] >> (self._ids % 32)) & 1).bool()
         return tuple(self._ids[valid].tolist())
+
+    def mask_density(self) -> float:
+        """Read next-token support without advancing or exposing matcher state."""
+        if self.is_terminated():
+            raise GrammarTerminatedError("grammar has terminated")
+        if not self._matcher.fill_next_token_bitmask(self._mask):
+            # An all-valid result need not overwrite the previous mask contents.
+            return 1.0
+        return packed_mask_density(self._mask[0], self.vocab_size)
 
     def accept_token(self, token: int) -> bool:
         token = token_id(token, self.vocab_size, "grammar token")
