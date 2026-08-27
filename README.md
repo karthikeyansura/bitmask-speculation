@@ -67,6 +67,13 @@ include [proposal accounting](docs/proposal-accounting.md): proposed, verified,
 accepted, emitted, and round counts, with separate acceptance and proposal-yield
 ratios.
 
+## Packed-mask density
+
+The [CPU density reference](docs/mask-density.md) counts valid vocabulary bits
+in signed int32 rows, excluding padding in the final word. `XGrammarState` exposes
+a read-only density query for the current state. The reference establishes the
+counting contract for later scheduling and GPU reductions.
+
 ## Evaluation
 
 The reference is target-only greedy decoding under the same grammar. Speculative

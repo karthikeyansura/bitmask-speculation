@@ -120,3 +120,25 @@ def test_tiny_causal_model_constrained_verification_matches_reference(seed):
             else:
                 assert tuple(e.token_id for e in events) == reference.token_ids[:mismatch + 1]
                 assert events[-1].kind == "correction" and not grammar.is_terminated()
+
+
+def test_density_matches_allowed_ids_without_advancing_state():
+    state = XGrammarState(compile_grammar(["a", "b", "c", "<eos>"], 'root ::= "ab" | "ac"', 3))
+    for token in (0, 1, 3):
+        before = state.allowed_token_ids()
+        assert state.mask_density() == len(before) / state.vocab_size
+        assert state.mask_density() == len(before) / state.vocab_size
+        assert state.allowed_token_ids() == before
+        branch = state.fork()
+        assert branch.mask_density() == state.mask_density()
+        assert state.accept_token(token)
+        assert branch.allowed_token_ids() == before
+    with pytest.raises(GrammarTerminatedError):
+        state.mask_density()
+
+
+def test_density_all_valid_ignores_stale_mask(monkeypatch):
+    state = XGrammarState(compile_grammar(["a", "<eos>"], 'root ::= "a"', 1))
+    state._mask.fill_(0)
+    monkeypatch.setattr(state._matcher, "fill_next_token_bitmask", lambda mask: False)
+    assert state.mask_density() == 1.0
