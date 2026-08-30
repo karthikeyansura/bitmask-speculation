@@ -80,10 +80,11 @@ rolled back automatically. State belongs exclusively to one active request.
 
 ## Scope
 
-The reference path handles one request at a time, with one fixed draft budget,
+The reference path handles one request at a time, with a fixed or density-selected draft budget,
 optional grammar constraints on the target or both models, and greedy selection.
 It has request-level proposal counters, but no timing instrumentation, KV-cache
-reuse, scheduling policy, sampling, or batching yet. The full prompt plus proposal sequence must
+reuse, sampling, or batching yet. C4 optionally selects the budget using a
+[density-threshold policy](draft-scheduling.md). The full prompt plus proposal sequence must
 fit the model's context capacity; no implicit truncation is applied.
 
 Tests compare content, EOS identity, stop reason, and final grammar state against

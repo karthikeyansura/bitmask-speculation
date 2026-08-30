@@ -72,7 +72,12 @@ ratios.
 The [CPU density reference](docs/mask-density.md) counts valid vocabulary bits
 in signed int32 rows, excluding padding in the final word. `XGrammarState` exposes
 a read-only density query for the current state. The reference establishes the
-counting contract for later scheduling and GPU reductions.
+counting contract for scheduling and later GPU reductions.
+
+C4 adds a [density-threshold policy](docs/draft-scheduling.md) to C3. Each round
+records its density, requested budget, effective budget and committed output
+offset. Thresholds and budget bounds are configurable; density 1 follows the
+same policy as every other density value.
 
 ## Evaluation
 

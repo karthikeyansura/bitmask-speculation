@@ -8,6 +8,7 @@ from ..grammar import ForkableGrammarState, GrammarState
 from ._validation import request_inputs, token_id, vocabulary_size
 from .accounting import ProposalAccounting, _RoundAccounting
 from .greedy import ConstrainedGreedyModel, GreedyModel, GreedyResult
+from .scheduling import DensityPolicy, RoundSchedule
 from .verification import VerifiedToken
 
 
@@ -17,8 +18,11 @@ class SpeculativeResult:
 
     generation: GreedyResult
     accounting: ProposalAccounting
+    schedule: tuple[RoundSchedule, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.schedule and len(self.schedule) != self.accounting.rounds:
+            raise ValueError("schedule must contain one decision per round")
         if self.accounting.emitted != len(self.generation.token_ids):
             raise ValueError("emitted count must equal the content token count")
 
@@ -95,6 +99,7 @@ def speculative_decode(
     eos_token_ids: Iterable[int] = (),
     grammar: GrammarState | None = None,
     constrain_draft: bool = False,
+    draft_policy: DensityPolicy | None = None,
 ) -> SpeculativeResult:
     """Generate a target-greedy continuation with optional constrained proposals.
 
@@ -106,6 +111,10 @@ def speculative_decode(
     With constrain_draft=True, grammar must support independent forks and draft
     must advance its supplied grammar once per choice. Each round drafts on a
     fork; discarding it restores the committed state without mutating the parent.
+
+    A draft_policy enables C4: sample density at each committed round boundary,
+    choose K from the policy, and cap it at remaining output. It requires draft
+    constraints and a grammar mask_density() query; draft_budget is then unused.
 
     A zero output budget validates inputs without calling either model. The
     generation uses the same contract as greedy_decode; accounting is separate.
@@ -127,6 +136,12 @@ def speculative_decode(
     if constrain_draft and not callable(getattr(grammar, "fork", None)):
         raise TypeError("constrained drafting requires a forkable grammar")
     draft_grammar = cast(ForkableGrammarState, grammar) if constrain_draft else None
+    if draft_policy is not None:
+        if not isinstance(draft_policy, DensityPolicy):
+            raise TypeError("draft_policy must be a DensityPolicy")
+        if not constrain_draft or not callable(getattr(grammar, "mask_density", None)):
+            raise ValueError("density scheduling requires constrained drafts and mask_density()")
+    schedule: list[RoundSchedule] = []
     generated: list[int] = []
     proposed = verified = accepted = rounds = 0
 
@@ -136,6 +151,7 @@ def speculative_decode(
         return SpeculativeResult(
             GreedyResult(tuple(generated), reason, eos_token),
             ProposalAccounting(proposed, verified, accepted, len(generated), rounds),
+            tuple(schedule),
         )
 
     while len(generated) < max_new_tokens:
@@ -143,8 +159,13 @@ def speculative_decode(
             return finish("grammar")
         prefix = prompt + tuple(generated)
         remaining = max_new_tokens - len(generated)
+        budget = draft_budget
+        if draft_policy is not None:
+            density = grammar.mask_density()
+            budget = draft_policy.budget(density)
+            schedule.append(RoundSchedule(density, budget, min(budget, remaining), len(generated)))
         proposals = _draft_proposals(
-            draft, prefix, min(draft_budget, remaining), eos, vocab_size, draft_grammar
+            draft, prefix, min(budget, remaining), eos, vocab_size, draft_grammar
         )
 
         proposed += len(proposals)
