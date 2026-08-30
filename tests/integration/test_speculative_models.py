@@ -3,7 +3,7 @@ import pytest
 torch = pytest.importorskip("torch")
 transformers = pytest.importorskip("transformers")
 
-from bitmask_speculation.decoding import greedy_decode, speculative_decode
+from bitmask_speculation.decoding import DensityPolicy, greedy_decode, speculative_decode
 from bitmask_speculation.models.transformers import TransformersGreedyModel
 
 
@@ -33,10 +33,10 @@ def test_distinct_causal_models_match_target_greedy_across_budgets(seed):
                     assert result.generation == expected
 
 
-@pytest.mark.parametrize("constrain_draft", [False, True])
+@pytest.mark.parametrize("mode", ["c2", "c3", "c4"])
 @pytest.mark.parametrize("terminate_without_stop", [False, True])
 @pytest.mark.parametrize("seed", [7, 19, 41])
-def test_xgrammar_request_matches_target_reference(seed, terminate_without_stop, constrain_draft):
+def test_xgrammar_request_matches_target_reference(seed, terminate_without_stop, mode):
     xgr = pytest.importorskip("xgrammar")
     from bitmask_speculation.grammar.xgrammar import XGrammarState
 
@@ -60,7 +60,8 @@ def test_xgrammar_request_matches_target_reference(seed, terminate_without_stop,
                 actual_state = state()
                 result = speculative_decode(
                     target, draft, prompt, max_new_tokens=limit, draft_budget=budget,
-                    eos_token_ids=[2], grammar=actual_state, constrain_draft=constrain_draft,
+                    eos_token_ids=[2], grammar=actual_state, constrain_draft=mode != "c2",
+                    draft_policy=DensityPolicy(.4, .8, 1, budget) if mode == "c4" else None,
                 )
                 assert result.generation == expected
                 assert actual_state.is_terminated() == reference_state.is_terminated()
