@@ -133,3 +133,11 @@ Develop and check packaging locally. Run CUDA compilation, kernel correctness,
 and inference benchmarks on Linux with an NVIDIA GPU. Record the GPU model,
 driver, toolkit, Python, and library versions with each run. An instance type or
 a successful SSH login alone does not establish a validated GPU environment.
+
+## Budget comparisons
+
+The [budget-sweep API](budget-sweeps.md) works with already loaded model adapters.
+It requires the `models`, `grammar` and `benchmarks` extras for the XGrammar path.
+CPU fixture tests exercise repeated comparisons without downloading weights.
+Use the same installed package, pinned models, precision and schema for GPU
+comparisons; retain actual run times and explicit device synchronization.

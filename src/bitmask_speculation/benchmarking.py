@@ -8,9 +8,9 @@ import json
 import math
 from pathlib import Path
 
-from .decoding import GreedyResult, ProposalAccounting, SpeculativeResult
+from .decoding import DensityPolicy, GreedyResult, ProposalAccounting, RoundSchedule, SpeculativeResult
 
-_VARIANTS = {"target_unconstrained", "target_constrained", "c1", "c2", "c3"}
+_VARIANTS = {"target_unconstrained", "target_constrained", "c1", "c2", "c3", "c4"}
 _METADATA = {
     "source_revision", "target_revision", "draft_revision", "tokenizer_revision",
     "device", "precision", "dependencies", "timing_scope",
@@ -118,15 +118,25 @@ class TrialRecord:
     schema_valid: bool | None = None
     decode_seconds: float | None = None
     error: str | None = None
+    policy: DensityPolicy | None = None
+    schedule: tuple[RoundSchedule, ...] = ()
 
     def __post_init__(self) -> None:
         if self.variant not in _VARIANTS:
             raise ValueError("unknown baseline variant")
-        speculative = self.variant in {"c1", "c2", "c3"}
-        if speculative:
-            _integer(self.draft_budget, "draft_budget", 1)
-        elif self.draft_budget is not None:
-            raise ValueError("target-only records have no draft budget")
+        speculative = self.variant in {"c1", "c2", "c3", "c4"}
+        if self.variant == "c4":
+            if not isinstance(self.policy, DensityPolicy) or self.draft_budget is not None:
+                raise ValueError("C4 requires a policy and no fixed draft budget")
+        else:
+            if self.policy is not None or self.schedule:
+                raise ValueError("only C4 records contain a policy or schedule")
+            if speculative:
+                _integer(self.draft_budget, "draft_budget", 1)
+            elif self.draft_budget is not None:
+                raise ValueError("target-only records have no draft budget")
+        if not isinstance(self.schedule, tuple) or any(not isinstance(s, RoundSchedule) for s in self.schedule):
+            raise TypeError("schedule must be a tuple of RoundSchedule decisions")
         _integer(self.repetition, "repetition")
         for name in ("prompt_token_ids", "eos_token_ids", "token_ids"):
             tokens = getattr(self, name)
@@ -158,6 +168,8 @@ class TrialRecord:
             _text(self.error, "error")
             if any(v is not None for v in (self.token_ids, self.stop_reason, self.eos_token_id, self.accounting, self.exact_match, self.schema_valid)):
                 raise ValueError("failed trials cannot claim successful output or comparisons")
+            if self.schedule:
+                raise ValueError("failed trials cannot claim a completed schedule")
             return
         if self.token_ids is None or len(self.token_ids) > self.workload.max_new_tokens:
             raise ValueError("successful trial requires output within its budget")
@@ -177,6 +189,20 @@ class TrialRecord:
             raise ValueError("only speculative records contain proposal accounting")
         if self.accounting is not None and self.accounting.emitted != len(self.token_ids):
             raise ValueError("emitted count differs from recorded tokens")
+        if self.variant == "c4":
+            if len(self.schedule) != self.accounting.rounds:
+                raise ValueError("C4 requires one schedule decision per round")
+            previous = -1
+            for decision in self.schedule:
+                offset = decision.output_offset
+                if offset <= previous or offset > len(self.token_ids) or offset >= self.workload.max_new_tokens:
+                    raise ValueError("invalid schedule output offsets")
+                if previous == -1 and offset != 0:
+                    raise ValueError("schedule must start at output offset zero")
+                expected = self.policy.budget(decision.density)
+                if decision.requested_budget != expected or decision.effective_budget != min(expected, self.workload.max_new_tokens - offset):
+                    raise ValueError("schedule disagrees with policy or output budget")
+                previous = offset
 
     @property
     def complete(self) -> bool:
@@ -197,6 +223,9 @@ class TrialRecord:
                 data[name] = tuple(data[name])
         if data["accounting"] is not None:
             data["accounting"] = ProposalAccounting(**data["accounting"])
+        if data.get("policy") is not None:
+            data["policy"] = DensityPolicy(**data["policy"])
+        data["schedule"] = tuple(RoundSchedule(**entry) for entry in data.get("schedule", ()))
         return cls(**data)
 
 
@@ -206,6 +235,7 @@ def record_trial(
     prompt_token_ids: Sequence[int], eos_token_ids: Sequence[int],
     metadata: Mapping[str, str], draft_budget: int | None = None,
     repetition: int = 0, decode_seconds: float | None = None,
+    policy: DensityPolicy | None = None,
 ) -> TrialRecord:
     """Validate output outside the timed region; preserve raw tokens and counts.
 
@@ -231,7 +261,8 @@ def record_trial(
         eos_token_id=generation.eos_token_id,
         accounting=result.accounting if isinstance(result, SpeculativeResult) else None,
         exact_match=generation == reference, schema_valid=schema_valid,
-        decode_seconds=decode_seconds,
+        decode_seconds=decode_seconds, policy=policy,
+        schedule=result.schedule if isinstance(result, SpeculativeResult) else (),
     )
 
 
@@ -240,7 +271,7 @@ def aggregate_trials(records: Sequence[TrialRecord]) -> dict:
     if not records:
         raise ValueError("at least one trial is required")
     def key(r):
-        return (r.workload, r.variant, r.draft_budget, r.prompt_token_ids, r.eos_token_ids, r.metadata_json)
+        return (r.workload, r.variant, r.draft_budget, r.policy, r.prompt_token_ids, r.eos_token_ids, r.metadata_json)
     if any(key(r) != key(records[0]) for r in records):
         raise ValueError("aggregate only identical workloads and execution configurations")
     if len({r.repetition for r in records}) != len(records):

@@ -91,6 +91,11 @@ and nested-object cases, paired target-only references, and lossless trial
 records. Completion, schema validity, and exact token agreement are recorded
 separately. Aggregate rates use summed counts and durations.
 
+The [budget sweep](docs/budget-sweeps.md) compares target-only references and
+C1–C4 using fixed models, prompts and schemas. It warms each configuration,
+rotates execution order, and preserves every measured repetition, including
+failures and C4 scheduling traces. GPU measurements are still pending.
+
 The [design document](docs/design.md) defines the decoding contract, experiment
 matrix, and validation requirements. Measured results will accompany validated
 implementations.
