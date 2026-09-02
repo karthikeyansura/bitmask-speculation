@@ -2,8 +2,8 @@
 
 The workload set compares unconstrained, target-constrained and jointly
 constrained greedy speculation with their respective target-only references.
-C2 versus C3 isolates draft-side masking. Adaptive budgets, kernel comparisons
-and performance sweeps are separate experiments.
+C2 versus C3 isolates draft-side masking; C3 versus C4 isolates scheduling.
+The [budget sweep](budget-sweeps.md) repeats these comparisons.
 
 ## Cases and references
 
@@ -20,6 +20,7 @@ workload fingerprint covers the ID, full prompt, schema and output limit.
 | `c1` | Disabled | Disabled | `target_unconstrained` |
 | `c2` | Disabled | Enabled | `target_constrained` |
 | `c3` | Enabled | Enabled | `target_constrained` |
+| `c4` | Enabled, adaptive budget | Enabled | `target_constrained` |
 
 Use the same prompt serialization, token IDs, output limit, EOS IDs, precision
 and target model revision for each paired comparison. Construct fresh grammar
@@ -49,7 +50,8 @@ It does not load models, run AWS commands, mutate grammar state, or measure time
 Every record retains:
 
 - The complete workload and prompt/EOS token IDs.
-- Variant, fixed draft budget and repetition ID.
+- Variant, fixed draft budget or C4 policy configuration, and repetition ID.
+- C4 density, requested/effective budget and output offset for every round.
 - Actual UTC recording time, source revision, model/tokenizer revisions, device,
   precision, dependency versions and timing scope.
 - Raw content token IDs, stop reason and a separate selected EOS token.
@@ -105,7 +107,7 @@ throughputs to obtain these aggregate rates. Missing denominators return `None`,
 which serializes as JSON `null`. Target-only acceptance rates are undefined.
 
 Aggregation rejects mixed workloads, model/environment metadata, prompt/EOS IDs,
-variants or draft budgets, and rejects duplicate repetition IDs. Any error
+variants, draft budgets or policy parameters, and rejects duplicate repetition IDs. Any error
 suppresses aggregate rates; counts from successful trials remain visible beside
 the error count. Any missing timing suppresses throughput. Untimed records must
 not contain durations. Raw observed throughput is not a validation verdict:
@@ -125,3 +127,13 @@ that the scope is `full_prefix_loop`. Prefill and decode are not separated by
 this implementation. Cached implementations need a distinct timing scope.
 
 Store every repetition, rotate variant order and retain environment details.
+
+## Adaptive records
+
+C4 uses `draft_budget=None`, an explicit `DensityPolicy`, and the decoder's
+`RoundSchedule` tuple. A successful record has one decision per round, beginning
+at offset zero with strictly increasing committed-output offsets. Requested K
+must match the policy; effective K must match the remaining output cap. Error
+records retain policy configuration without claiming a completed schedule.
+The version-1 reader accepts older fixed-budget records without these optional
+fields. Policy configurations remain distinct aggregation groups.

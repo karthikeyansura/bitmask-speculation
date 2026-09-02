@@ -219,3 +219,11 @@ def test_c3_records_roundtrip_without_pooling_c2():
     for change in ({"draft_budget": None}, {"accounting": None}):
         with pytest.raises((ValueError, TypeError)):
             replace(c3, **change)
+
+
+def test_original_version_one_records_remain_readable():
+    record = trial()
+    payload = json.loads(record.to_json())
+    payload.pop("policy")
+    payload.pop("schedule")
+    assert TrialRecord.from_json(json.dumps(payload)) == record
