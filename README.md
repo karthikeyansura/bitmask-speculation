@@ -107,6 +107,12 @@ See [development setup](docs/development.md) for an editable installation and
 checks against a built wheel. GPU backends are introduced separately from the
 base package.
 
+## Native CUDA primitives
+
+The [optional extension](docs/cuda-primitives.md) is built explicitly from
+packaged sources on an NVIDIA CUDA host. CPU installation and ordinary imports
+remain independent of native compilation. CUDA runtime validation is pending.
+
 ## License
 
 [MIT](LICENSE).
