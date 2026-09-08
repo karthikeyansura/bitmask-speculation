@@ -47,3 +47,16 @@ The decoder still uses its existing reference selection path; native dispatch
 into generation belongs to a later step. The relevant upstream contracts are
 [PyTorch extension loading](https://docs.pytorch.org/docs/stable/cpp_extension.html)
 and [CUDA stream semantics](https://docs.pytorch.org/docs/stable/notes/cuda.html).
+
+## Packed-mask count
+
+`kernels.cuda.mask_count(mask, V)` returns a new scalar int64 CUDA tensor. A
+256-thread block scans words, masks the final vocabulary tail, reduces per-warp
+counts and writes the entire result once. No caller-supplied accumulator, atomic
+initialization or host readback is required. Signed words are treated as uint32
+bit patterns. Zero support returns zero; an all-valid row returns V.
+
+`mask_density(mask, V)` performs a subsequent float64 conversion and division on
+the device. Its cost includes those PyTorch operations; it is not a fused count
+and division kernel. Calling `.item()` on either result synchronizes explicitly.
+The reduction uses one thread block.
