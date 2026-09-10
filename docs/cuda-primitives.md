@@ -60,3 +60,17 @@ bit patterns. Zero support returns zero; an all-valid row returns V.
 the device. Its cost includes those PyTorch operations; it is not a fused count
 and division kernel. Calling `.item()` on either result synchronizes explicitly.
 The reduction uses one thread block.
+
+## Masked argmax
+
+`kernels.cuda.masked_argmax(logits, mask)` fuses support filtering and maximum
+selection without materializing a masked logit row. Exact score ties choose the
+lowest valid token ID across lanes and warps. All-valid `-inf` scores still select
+a valid token. Positive infinity is allowed. NaN anywhere in the row, including
+an invalid position, raises; empty support also raises. Padding bits are ignored.
+
+The native entry returns owned scalar output and status tensors. The checked
+Python wrapper reads status and therefore synchronizes the current operation;
+this overhead belongs in wrapper/end-to-end timings. The output stays on CUDA.
+The implementation scans one row with one 256-thread block. Batched dispatch,
+workspace reuse and generation-backend integration remain later steps.

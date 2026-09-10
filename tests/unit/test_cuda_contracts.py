@@ -33,3 +33,14 @@ def test_cpu_inputs_are_not_transferred_implicitly():
         mask_input(torch.ones(1, dtype=torch.int32), 32)
     with pytest.raises(TypeError, match="float32"):
         selection_inputs(torch.zeros(32, dtype=torch.float16), torch.ones(1, dtype=torch.int32))
+
+
+def test_selection_status_contract_on_cpu():
+    from bitmask_speculation.kernels.cuda import _checked_selection
+    output = torch.tensor(31, dtype=torch.int64)
+    assert _checked_selection((output, torch.tensor(0))) is output
+    for code, text in [(1, "no valid"), (2, "NaN")]:
+        with pytest.raises(ValueError, match=text):
+            _checked_selection((output, torch.tensor(code)))
+    with pytest.raises(RuntimeError, match="unknown"):
+        _checked_selection((output, torch.tensor(99)))
