@@ -29,3 +29,12 @@ def selection_inputs(logits, mask):
     if logits.device != mask.device:
         raise ValueError("logits and mask must be on the same CUDA device")
     return vocab_size
+
+
+def temperature_input(temperature):
+    import math
+    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+        raise TypeError("temperature must be numeric")
+    if not math.isfinite(temperature) or temperature < 0:
+        raise ValueError("temperature must be finite and nonnegative")
+    return float(temperature)
