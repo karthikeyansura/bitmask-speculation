@@ -74,3 +74,33 @@ Python wrapper reads status and therefore synchronizes the current operation;
 this overhead belongs in wrapper/end-to-end timings. The output stays on CUDA.
 The implementation scans one row with one 256-thread block. Batched dispatch,
 workspace reuse and generation-backend integration remain later steps.
+
+## Standalone masked sampling
+
+`kernels.cuda.masked_sample(logits, mask, temperature=..., generator=...)` samples
+from masked softmax using inverse CDF. Positive temperature draws one float64
+uniform on the input device through PyTorch. Pass an explicitly seeded CUDA
+`torch.Generator` for repeatable sequences in a fixed environment; no private
+cuRAND state or hidden seed reset is used. State advances across calls, including
+value-error calls after the draw. Build and metadata errors precede the draw.
+Temperature zero consumes no randomness and uses the same argmax primitive.
+
+The CUDA sampler first reduces the valid maximum, then reduces exponentiated
+weights, then walks the CDF serially on thread zero. It uses float64 arithmetic
+for normalization and compares a uniform in [0, 1) using a strict CDF boundary.
+A last-positive-weight fallback handles summation rounding at the endpoint.
+There are multiple scans; this is not an online or single-pass softmax algorithm.
+No probability tensor is materialized, but serial CDF cost may dominate.
+
+Temperature must be finite and nonnegative. Positive-temperature sampling rejects
+valid +inf, all-valid -inf and empty support; invalid +inf is ignored. NaN anywhere
+raises. Valid -inf entries have zero mass and cannot win even for uniform zero.
+Very small positive temperatures subtract the maximum before division to avoid
+overflow of the largest scaled score. Output and status are independently owned.
+The checked wrapper synchronizes to report errors, just like argmax.
+
+`kernels.reference.masked_sample_reference` accepts CPU tensors and an explicit
+uniform for deterministic boundary comparisons. RNG identity across devices or
+PyTorch versions is not promised. This primitive is separate from the greedy
+speculative engine and does not establish distribution-preserving stochastic
+speculative decoding. GPU tests check seeded replay and the categorical distribution.
