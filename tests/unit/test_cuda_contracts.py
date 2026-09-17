@@ -44,3 +44,48 @@ def test_selection_status_contract_on_cpu():
             _checked_selection((output, torch.tensor(code)))
     with pytest.raises(RuntimeError, match="unknown"):
         _checked_selection((output, torch.tensor(99)))
+
+
+def test_invalid_public_calls_never_compile(monkeypatch):
+    from bitmask_speculation.kernels import cuda
+    def forbidden():
+        pytest.fail("invalid CPU inputs reached the extension loader")
+    monkeypatch.setattr(cuda, "load_extension", forbidden)
+    mask = torch.ones(1, dtype=torch.int32)
+    for call in [lambda: cuda.mask_count(mask, 32), lambda: cuda.mask_density(mask, 32),
+                 lambda: cuda.masked_argmax(torch.zeros(32), mask),
+                 lambda: cuda.masked_sample(torch.zeros(32), mask)]:
+        with pytest.raises(ValueError, match="CUDA"):
+            call()
+
+
+def test_loader_fails_explicitly_without_cuda(monkeypatch):
+    from bitmask_speculation.kernels._extension import load_extension
+    load_extension.cache_clear()
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    with pytest.raises(RuntimeError, match="CUDA-enabled"):
+        load_extension()
+    load_extension.cache_clear()
+
+
+def test_loader_cache_and_packaged_source_selection(monkeypatch):
+    import torch.utils.cpp_extension as cpp
+    from bitmask_speculation.kernels._extension import load_extension
+    calls = []
+    marker = object()
+    def fake_load(**kwargs):
+        calls.append(kwargs)
+        return marker
+    load_extension.cache_clear()
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.version, "cuda", "test")
+    monkeypatch.setattr(cpp, "CUDA_HOME", "/unused-test-toolkit")
+    monkeypatch.setattr(cpp, "load", fake_load)
+    try:
+        assert load_extension() is marker and load_extension() is marker
+        assert len(calls) == 1
+        assert calls[0]["with_cuda"] is True
+        assert "--use_fast_math" not in calls[0]["extra_cuda_cflags"]
+        assert any(p.endswith("sample.cu") for p in calls[0]["sources"])
+    finally:
+        load_extension.cache_clear()
