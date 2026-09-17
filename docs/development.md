@@ -141,3 +141,11 @@ It requires the `models`, `grammar` and `benchmarks` extras for the XGrammar pat
 CPU fixture tests exercise repeated comparisons without downloading weights.
 Use the same installed package, pinned models, precision and schema for GPU
 comparisons; retain actual run times and explicit device synchronization.
+
+## CUDA validation
+
+See [native primitives](cuda-primitives.md) and the [GPU validation procedure](cuda-validation.md).
+The default suite collects `tests/gpu` and reports explicit skips on CPU hosts.
+Do not count those skips as CUDA validation. Package installation requires no
+CUDA compiler; building the optional extension does. Validate an installed wheel
+outside the source checkout before enabling a generation backend.

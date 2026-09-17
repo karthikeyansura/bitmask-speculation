@@ -111,7 +111,10 @@ base package.
 
 The [optional extension](docs/cuda-primitives.md) is built explicitly from
 packaged sources on an NVIDIA CUDA host. CPU installation and ordinary imports
-remain independent of native compilation. CUDA runtime validation is pending.
+remain independent of native compilation. The prepared kernels cover vocabulary-tail popcount, deterministic masked
+argmax, and standalone masked sampling. They are not wired into generation yet.
+Run the installed-wheel GPU suite to validate native compilation and execution.
+CPU-only runs cover contracts and references, with explicit skips for GPU tests.
 
 ## License
 
