@@ -21,6 +21,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
+[project.scripts]
+bitmask-speculation = "bitmask_speculation.cli:main"
+
 [project.urls]
 Repository = "https://github.com/karthikeyansura/bitmask-speculation"
 
@@ -47,6 +50,7 @@ packages = ["src/bitmask_speculation"]
 include = [
     "/src/bitmask_speculation",
     "/docs",
+    "/examples/quickstart.py",
     "/tests/unit",
     "/tests/integration",
     "/tests/gpu",

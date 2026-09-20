@@ -124,3 +124,6 @@ CPU-only runs cover contracts and references, with explicit skips for GPU tests.
 
 The [request engine](docs/engine.md) reuses loaded models across independent
 generation calls and exposes target-only and C1–C4 modes through one result API.
+
+The installed [generation CLI](docs/cli.md) accepts explicit schema documents and
+pinned model revisions. See the [Python example](examples/quickstart.py) for local models.
