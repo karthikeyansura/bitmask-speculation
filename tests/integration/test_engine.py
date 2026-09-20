@@ -122,3 +122,16 @@ def test_core_rejects_invalid_factory_and_mismatched_vocab(engine):
         engine.decoder.generate([0],max_new_tokens=0,mode='target_constrained',grammar_factory=lambda:None)
     class Draft: vocab_size=2
     with pytest.raises(ValueError,match='vocabularies'):DecodingEngine(engine.decoder.target,Draft())
+
+
+def test_installed_cli_from_another_directory(local_pair,tmp_path):
+    import subprocess,sys
+    command=[sys.executable,'-I','-m','bitmask_speculation','generate','Choose:',
+        '--target',str(local_pair[0]),'--draft',str(local_pair[1]),'--mode','c3',
+        '--schema-json','{"enum":["a","b"]}','--max-new-tokens','8','--local-files-only']
+    process=subprocess.run(command,cwd=tmp_path,text=True,capture_output=True,timeout=60)
+    assert process.returncode==0,process.stderr
+    data=json.loads(process.stdout)
+    assert json.loads(data['text']) in ['a','b'] and data['accounting']['emitted']==len(data['token_ids'])
+    failed=subprocess.run(command+['--schema-file','missing.json'],cwd=tmp_path,text=True,capture_output=True,timeout=60)
+    assert failed.returncode==2 and not failed.stdout
