@@ -50,6 +50,7 @@ packages = ["src/bitmask_speculation"]
 include = [
     "/src/bitmask_speculation",
     "/docs",
+    "/assets/banner.svg",
     "/examples/quickstart.py",
     "/tests/unit",
     "/tests/integration",

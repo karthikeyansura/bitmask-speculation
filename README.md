@@ -1,129 +1,105 @@
+<div align="center">
+<img src="assets/banner.svg" alt="bitmask-speculation" height="100"/>
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![CUDA](https://img.shields.io/badge/CUDA-custom%20kernels-green.svg)](https://developer.nvidia.com/cuda-toolkit)
+[![Triton](https://img.shields.io/badge/Triton-fused%20kernel-orange.svg)](https://triton-lang.org/)
+</div>
+
 # bitmask-speculation
 
 Packed grammar masks for draft scheduling and token verification in structured
-LLM decoding.
+LLM decoding. The project combines grammar-constrained draft proposals, ordered
+prefix verification and density-based draft budgets, with standalone CUDA
+primitives for popcount, masked argmax and categorical sampling.
 
-Structured generation restricts which tokens a model may emit at each position.
-A draft model that ignores those restrictions can propose tokens the target must
-reject. Applying the same grammar to drafting narrows the proposal space, but
-does not guarantee agreement between the models.
+A narrow grammar can reduce invalid proposals without making the draft agree
+with the target. Mask density is a scheduling signal, not an acceptance guarantee;
+its overhead and effect on throughput must be measured.
 
-This project investigates two decisions: how many tokens to draft from a given
-grammar state, and how to compute masked token selection with less GPU overhead.
-The starting point is greedy decoding with one draft model, one target model,
-and a shared token vocabulary.
+## Use
 
-## Approach
+Python 3.12 or later. From this checkout:
 
-- Apply grammar constraints to both draft proposals and target verification.
-- Use the fraction of valid vocabulary entries to select a draft budget.
-- Evaluate packed-mask reductions and masked argmax as CUDA/Triton kernels.
+```bash
+uv sync --extra models --extra grammar
+source .venv/bin/activate
+bitmask-speculation generate --help
+```
 
-Mask density is a scheduling heuristic. A small valid-token set need not produce
-high acceptance, and computing the signal has a cost. Both the policy and its
-overhead need to be measured against fixed-budget speculation.
+Generate from locally saved model/tokenizer directories:
 
-## Prefix acceptance
+```bash
+bitmask-speculation generate 'Return a colour:' \
+  --target /path/to/target --draft /path/to/draft \
+  --mode c3 --schema-json '{"enum":["red","blue"]}' \
+  --max-new-tokens 32 --local-files-only
+```
 
-If the draft proposes four tokens and the third disagrees with the target, only
-the first two are accepted. The target supplies the third token; the fourth
-proposal is discarded even if it would otherwise match.
+For Hub models, provide full revision SHAs with `--target-revision` and
+`--draft-revision`. Target and draft tokenizer definitions must match. Choose
+`--device cuda --dtype bfloat16` on a compatible GPU host; CPU/float32 is the
+default. Model loading never starts cloud resources.
 
-`verify_prefix` implements this ordered comparison. The Transformers adapter
-uses one target forward pass over the committed prefix and proposals, then
-selects only the rows requested by the consumer. See the
-[verification API](docs/prefix-verification.md) for its round-level contract.
+The [Python API](docs/engine.md) reuses loaded models across requests. The
+[CLI](docs/cli.md) returns JSON with content tokens, stop reason, accounting and
+scheduling decisions. See the [runnable example](examples/quickstart.py).
 
-The [worked trace](docs/prefix-acceptance.md) follows token alignment, grammar
-rollback, the all-accepted bonus token, and the resulting counters.
+## Decoding paths
 
-## Greedy reference
+| Mode | Target grammar | Draft grammar | Draft budget |
+| --- | --- | --- | --- |
+| `target_unconstrained` | No | No draft | None |
+| `target_constrained` | Yes | No draft | None |
+| `c1` | No | No | Fixed |
+| `c2` | Yes | No | Fixed |
+| `c3` | Yes | Yes | Fixed |
+| `c4` | Yes | Yes | Mask-density policy |
 
-The target-only token loop accepts an explicit prompt, output limit, and EOS IDs.
-Its result separates content tokens from the termination reason. An optional
-Transformers adapter selects from the last prefix position, optionally restricted
-by request-owned grammar state.
+Verification accepts only the consecutive matching prefix. On the first mismatch,
+the target supplies a correction and discards the remaining proposals. An
+all-accepted round can supply a target bonus token, subject to EOS and output
+budget. Draft grammar state is isolated from the committed target state.
 
-See the [reference API](docs/reference-decoding.md) for usage and edge cases.
-The adapter recomputes the full prefix; it establishes token behavior before
-cache management is introduced. Both greedy decoding and prefix verification
-share the [constrained selection contract](docs/grammar-selection.md).
+The [prefix walkthrough](docs/prefix-acceptance.md) explains alignment and state
+transitions. [Proposal accounting](docs/proposal-accounting.md) distinguishes
+proposed, verified, accepted and emitted tokens. C4 records each density query and
+requested/effective budget so its decisions can be inspected.
 
-## Speculative requests
+## Native primitives
 
-`speculative_decode` supports unconstrained speculation (C1), target-only grammar
-constraints (C2), and constraints on both models (C3). Set `constrain_draft=True`
-with a forkable grammar to enable C3. Each round drafts on independent matcher
-state, which is discarded before the target verifies the proposals.
+The optional CUDA extension builds explicitly from packaged sources. It provides
+vocabulary-tail popcount, deterministic masked argmax and standalone masked
+sampling for contiguous single rows. Python and native boundaries check inputs;
+outputs have independent ownership and launches use the current CUDA stream.
 
-The loop caps each proposal at the remaining output budget and stops only on a
-target-confirmed EOS, grammar termination, or the length limit. An empty draft
-still takes a target step. See [constrained drafting](docs/constrained-drafting.md)
-for state isolation and rollback semantics.
-
-The [request API](docs/speculative-decoding.md) defines termination precedence,
-state ownership, and the current full-prefix implementation's limits. Results
-include [proposal accounting](docs/proposal-accounting.md): proposed, verified,
-accepted, emitted, and round counts, with separate acceptance and proposal-yield
-ratios.
-
-## Packed-mask density
-
-The [CPU density reference](docs/mask-density.md) counts valid vocabulary bits
-in signed int32 rows, excluding padding in the final word. `XGrammarState` exposes
-a read-only density query for the current state. The reference establishes the
-counting contract for scheduling and later GPU reductions.
-
-C4 adds a [density-threshold policy](docs/draft-scheduling.md) to C3. Each round
-records its density, requested budget, effective budget and committed output
-offset. Thresholds and budget bounds are configurable; density 1 follows the
-same policy as every other density value.
+Generation uses the full-prefix reference path. See [native contracts](docs/cuda-primitives.md)
+and [CUDA validation](docs/cuda-validation.md).
 
 ## Evaluation
 
-The reference is target-only greedy decoding under the same grammar. Speculative
-variants must preserve its token sequence before throughput comparisons are
-meaningful. Workloads should cover enums, nested objects, and free-text fields,
-including cases where speculation is slower.
+Speculative output must match target-only greedy output under the same grammar.
+Schema validity, termination and exact token agreement are separate checks.
+The [baseline workloads](docs/baseline-workloads.md) and
+[budget sweep](docs/budget-sweeps.md) retain individual trials, failures and C4
+traces across enum, nested and mixed schemas.
 
-The [baseline workloads](docs/baseline-workloads.md) define contact-card, tool-call,
-and nested-object cases, paired target-only references, and lossless trial
-records. Completion, schema validity, and exact token agreement are recorded
-separately. Aggregate rates use summed counts and durations.
-
-The [budget sweep](docs/budget-sweeps.md) compares target-only references and
-C1–C4 using fixed models, prompts and schemas. It warms each configuration,
-rotates execution order, and preserves every measured repetition, including
-failures and C4 scheduling traces. GPU measurements are still pending.
-
-The [design document](docs/design.md) defines the decoding contract, experiment
-matrix, and validation requirements. Measured results will accompany validated
-implementations.
+Correctness results do not establish a speedup. Kernel, wrapper and end-to-end
+measurements need distinct timing boundaries, warmup and synchronization.
+See [validation records](docs/validation.md) for evidence requirements.
 
 ## Development
 
-The Python package uses a `src` layout and a Python 3.12 development environment.
-See [development setup](docs/development.md) for an editable installation and
-checks against a built wheel. GPU backends are introduced separately from the
-base package.
+```bash
+uv sync --extra models --extra grammar --extra benchmarks
+uv run pytest -q
+```
 
-## Native CUDA primitives
+CPU hosts skip GPU tests explicitly. A single GPU cannot execute the two-device
+isolation check. The generation API is greedy, single-request and uncached; the
+sampling primitive does not establish stochastic speculative decoding.
 
-The [optional extension](docs/cuda-primitives.md) is built explicitly from
-packaged sources on an NVIDIA CUDA host. CPU installation and ordinary imports
-remain independent of native compilation. The prepared kernels cover vocabulary-tail popcount, deterministic masked
-argmax, and standalone masked sampling. They are not wired into generation yet.
-Run the installed-wheel GPU suite to validate native compilation and execution.
-CPU-only runs cover contracts and references, with explicit skips for GPU tests.
-
-## License
-
-[MIT](LICENSE).
-
-## Request API
-
-The [request engine](docs/engine.md) reuses loaded models across independent
-generation calls and exposes target-only and C1–C4 modes through one result API.
-
-The installed [generation CLI](docs/cli.md) accepts explicit schema documents and
-pinned model revisions. See the [Python example](examples/quickstart.py) for local models.
+- [Documentation index](docs/index.md)
+- [Design and decoding contracts](docs/design.md)
+- [Development and installed-wheel checks](docs/development.md)
