@@ -53,3 +53,14 @@ def test_outputs_and_inputs_are_owned(triton_backend):
                    (second.token_id,second.valid_count,second.status)):
         assert a.data_ptr() != b.data_ptr()
     assert torch.equal(scores,saved[0]) and torch.equal(mask,saved[1])
+
+
+@pytest.mark.parametrize('word,vocab,token,count', [(-2147483648,32,31,1),
+    (-1,31,0,31),(2147483647,32,0,31),(-2147483647,32,0,2)])
+def test_signed_words(triton_backend,word,vocab,token,count):
+    import torch
+    logits=torch.zeros(vocab,device='cuda')
+    mask=torch.tensor([word],dtype=torch.int32,device='cuda')
+    result=triton_backend.masked_reduce(logits,mask).check()
+    assert result.token_id.item() == token
+    assert result.valid_count.item() == count

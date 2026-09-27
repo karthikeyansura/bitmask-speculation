@@ -53,6 +53,7 @@ include = [
     "/docs",
     "/assets/banner.svg",
     "/examples/quickstart.py",
+    "/examples/validate_gpu.py",
     "/tests/unit",
     "/tests/integration",
     "/tests/gpu",

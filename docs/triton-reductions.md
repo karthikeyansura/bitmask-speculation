@@ -23,3 +23,10 @@ an unchecked token ID. `masked_argmax` performs that check automatically.
 Tests cover tails, ties, large final reductions, invalid support, NaN, and
 retained outputs. Run `python -m pytest tests/gpu/test_triton_reduction.py` on a
 compatible GPU. CPU skips do not establish compilation or runtime correctness.
+
+For a short installed-package check, run `python examples/validate_gpu.py`.
+In Colab the same file can run from a `!python` cell after installing the wheel
+and its GPU dependencies. No notebook-specific implementation is needed.
+The runner exits 2 when CUDA is unavailable; a missing Triton dependency or a
+failed assertion on a present GPU is a failure. Signed-word fixtures cover
+`-2147483648` (only bit 31) and `-1` (all bits), including masked tail padding.
