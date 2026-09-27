@@ -98,6 +98,10 @@ models = [
     { name = "torch" },
     { name = "transformers" },
 ]
+triton = [
+    { name = "torch" },
+    { name = "triton", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -109,10 +113,12 @@ dev = [
 requires-dist = [
     { name = "jsonschema", marker = "extra == 'benchmarks'", specifier = ">=4.23,<5" },
     { name = "torch", marker = "extra == 'models'", specifier = ">=2.6,<3" },
+    { name = "torch", marker = "extra == 'triton'", specifier = ">=2.6,<3" },
     { name = "transformers", marker = "extra == 'models'", specifier = ">=4.51,<6" },
+    { name = "triton", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'triton'", specifier = ">=3.2,<4" },
     { name = "xgrammar", marker = "extra == 'grammar'", specifier = "==0.2.8" },
 ]
-provides-extras = ["benchmarks", "grammar", "models"]
+provides-extras = ["benchmarks", "grammar", "models", "triton"]
 
 [package.metadata.requires-dev]
 dev = [

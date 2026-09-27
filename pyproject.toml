@@ -30,6 +30,7 @@ Repository = "https://github.com/karthikeyansura/bitmask-speculation"
 [project.optional-dependencies]
 models = ["torch>=2.6,<3", "transformers>=4.51,<6"]
 grammar = ["xgrammar==0.2.8"]
+triton = ["torch>=2.6,<3", "triton>=3.2,<4; sys_platform == 'linux' and platform_machine == 'x86_64'"]
 benchmarks = ["jsonschema>=4.23,<5"]
 
 [dependency-groups]

@@ -17,3 +17,5 @@ The engine shares the existing decoding loops. Its model-loading facade checks
 compatible tokenizer definitions and keeps grammar state request-local. Native
 kernel dispatch is a separate capability; importing the package does not compile
 CUDA code or load model weights.
+
+- [Triton masked reductions](triton-reductions.md): signed words, exact counts and checked selection.

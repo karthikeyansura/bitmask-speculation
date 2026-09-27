@@ -149,3 +149,5 @@ The default suite collects `tests/gpu` and reports explicit skips on CPU hosts.
 Do not count those skips as CUDA validation. Package installation requires no
 CUDA compiler; building the optional extension does. Validate an installed wheel
 outside the source checkout before enabling a generation backend.
+
+Triton kernel contracts and GPU checks are described in [Triton reductions](triton-reductions.md).
