@@ -74,9 +74,10 @@ vocabulary-tail popcount, deterministic masked argmax and standalone masked
 sampling for contiguous single rows. Python and native boundaries check inputs;
 outputs have independent ownership and launches use the current CUDA stream.
 
-Triton provides an explicit two-pass masked argmax/count reduction with owned
-outputs and checked status. Generation still uses reference selection at this
-stage. See [Triton contracts](docs/triton-reductions.md),
+Generation accepts explicit `reference`, `cuda`, or `triton` constrained-selection
+backends while retaining full-prefix model evaluation. Native dispatch copies CPU
+grammar masks to the GPU and checks selection status before state transitions.
+See [Triton and dispatch contracts](docs/triton-reductions.md),
 [native contracts](docs/cuda-primitives.md) and [CUDA validation](docs/cuda-validation.md).
 
 ## Evaluation

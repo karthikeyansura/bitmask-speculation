@@ -33,6 +33,9 @@ length-limited request still exits 0; inspect `stop_reason` and validate the out
 before treating a structured document as complete.
 
 No latency or throughput number is printed. The benchmark harness must define
-warmup, synchronization and timing boundaries separately. The native kernels are
-not yet connected to generation. See [engine contracts](engine.md) and the
+warmup, synchronization and timing boundaries separately. See [engine contracts](engine.md) and the
 [Python example](../examples/quickstart.py).
+
+Use `--backend reference|cuda|triton` to select constrained token processing.
+Native backends require `--device cuda`; unsupported hardware fails before model
+loading. See [backend contracts](triton-reductions.md).

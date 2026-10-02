@@ -30,3 +30,17 @@ and its GPU dependencies. No notebook-specific implementation is needed.
 The runner exits 2 when CUDA is unavailable; a missing Triton dependency or a
 failed assertion on a present GPU is a failure. Signed-word fixtures cover
 `-2147483648` (only bit 31) and `-1` (all bits), including masked tail padding.
+
+## Engine dispatch
+
+Pass `backend="reference"`, `"cuda"`, or `"triton"` to
+`TransformersEngine.from_pretrained`, or `--backend` to the CLI. Unsupported
+hardware fails before model loading. There is no automatic backend choice.
+Both target and constrained draft selection use the chosen backend; unconstrained
+argmax remains PyTorch. Grammar transitions occur only after checked selection.
+
+XGrammar exposes owned CPU packed-mask snapshots. Native dispatch copies a
+snapshot to the model device each selection. Float16 and bfloat16 scores widen
+exactly to float32; float64 is rejected by native selection. No KV caching,
+GPU-resident grammar, or transfer elimination is implied. C4 scheduling still
+uses the CPU mask-density reference; the fused Triton count does not replace it.

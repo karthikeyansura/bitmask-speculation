@@ -45,13 +45,15 @@ class TransformersEngine:
     """Load once, then create independent request grammar state on each call.
 
     This is a single-device, uncached, greedy reference. It does not apply chat
-    templates or generation-config processors, and does not dispatch CUDA kernels.
+    templates or generation-config processors. Constrained selection can explicitly
+    dispatch to CUDA or Triton; reference is the default.
     """
 
     @classmethod
     def from_pretrained(
         cls, target: ModelSpec, draft: ModelSpec | None = None, *,
         device: str = "cpu", dtype: str = "float32", local_files_only: bool = False,
+        backend: str = "reference",
     ) -> "TransformersEngine":
         if not isinstance(target, ModelSpec) or (draft is not None and not isinstance(draft, ModelSpec)):
             raise TypeError("target and draft must be ModelSpec instances")
@@ -66,6 +68,8 @@ class TransformersEngine:
             raise ValueError("supported devices are cpu and cuda")
         if resolved.type == "cuda" and not torch.cuda.is_available():
             raise ValueError("CUDA device is unavailable")
+        from ..kernels.dispatch import validate_backend
+        validate_backend(backend, resolved)
         def options(spec):
             return dict(revision=spec.revision, local_files_only=local_files_only, trust_remote_code=False)
         tokenizer = AutoTokenizer.from_pretrained(target.source, **options(target))
@@ -81,7 +85,7 @@ class TransformersEngine:
             model = AutoModelForCausalLM.from_pretrained(
                 spec.source, torch_dtype=getattr(torch, dtype), **options(spec)
             ).to(resolved).eval()
-            return model, TransformersGreedyModel(model)
+            return model, TransformersGreedyModel(model, backend=backend)
         target_model, target_adapter = load(target)
         draft_adapter = None if draft is None else load(draft)[1]
         if max(tokenizer.get_vocab().values()) >= target_adapter.vocab_size:

@@ -142,3 +142,21 @@ def test_density_all_valid_ignores_stale_mask(monkeypatch):
     state._mask.fill_(0)
     monkeypatch.setattr(state._matcher, "fill_next_token_bitmask", lambda mask: False)
     assert state.mask_density() == 1.0
+
+
+def test_packed_snapshot_survives_matcher_advance():
+    state = XGrammarState(compile_grammar(['a','b','<eos>'], 'root ::= "ab"', 2))
+    first = state.packed_mask()
+    assert first.item() & 7 == 1
+    state.accept_token(0)
+    second = state.packed_mask()
+    assert first.item() & 7 == 1 and second.item() & 7 == 2
+    first.zero_()
+    assert state.allowed_token_ids() == (1,)
+
+
+def test_packed_snapshot_all_valid_fast_path(monkeypatch):
+    state = XGrammarState(compile_grammar(['a','<eos>'], 'root ::= "a"', 1))
+    state._mask.zero_()
+    monkeypatch.setattr(state._matcher,'fill_next_token_bitmask',lambda mask:False)
+    assert state.packed_mask().item() == -1
