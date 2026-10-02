@@ -54,5 +54,8 @@ The facade decodes content without stripping special tokens or normalizing space
 No throughput metric is inferred from these calls. Model loading, grammar
 compilation and decoding timing belong to the benchmark harness.
 
-This engine uses the existing full-prefix reference selection path. It does not
-invoke the standalone CUDA primitives.
+The engine keeps full-prefix model evaluation and accepts an explicit
+`backend="reference"`, `"cuda"`, or `"triton"` for constrained token selection.
+The reference backend is the default. See [backend contracts](triton-reductions.md)
+for precision, mask transfers and synchronization. This is still single-request
+inference; batched primitives do not batch grammar transitions.

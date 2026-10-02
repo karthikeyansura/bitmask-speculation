@@ -60,6 +60,15 @@ class XGrammarState:
         valid = ((self._mask[0, self._ids // 32] >> (self._ids % 32)) & 1).bool()
         return tuple(self._ids[valid].tolist())
 
+    def packed_mask(self):
+        """Return an owned CPU mask snapshot without advancing matcher state."""
+        if self.is_terminated():
+            raise GrammarTerminatedError("grammar has terminated")
+        if not self._matcher.fill_next_token_bitmask(self._mask):
+            self._mask.fill_(-1)
+        # Padding bits are deliberately allowed: all consumers mask the tail.
+        return self._mask[0].clone()
+
     def mask_density(self) -> float:
         """Read next-token support without advancing or exposing matcher state."""
         if self.is_terminated():

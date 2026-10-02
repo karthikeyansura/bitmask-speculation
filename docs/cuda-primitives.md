@@ -43,8 +43,8 @@ host, extension build failures fail the tests. Local CPU success does not establ
 that the CUDA sources compile or run correctly. GPU build/runtime validation must
 precede backend integration or performance claims.
 
-The decoder still uses its existing reference selection path; native dispatch
-into generation belongs to a later step. The relevant upstream contracts are
+The decoder defaults to reference selection; native dispatch into generation
+is explicit through the backend option. The relevant upstream contracts are
 [PyTorch extension loading](https://docs.pytorch.org/docs/stable/cpp_extension.html)
 and [CUDA stream semantics](https://docs.pytorch.org/docs/stable/notes/cuda.html).
 
@@ -72,8 +72,9 @@ an invalid position, raises; empty support also raises. Padding bits are ignored
 The native entry returns owned scalar output and status tensors. The checked
 Python wrapper reads status and therefore synchronizes the current operation;
 this overhead belongs in wrapper/end-to-end timings. The output stays on CUDA.
-The implementation scans one row with one 256-thread block. Batched dispatch,
-workspace reuse and generation-backend integration remain later steps.
+The CUDA implementation scans one row with one 256-thread block. The engine
+can select it explicitly for constrained argmax. Triton reduction capabilities
+and scratch ownership are specified in [Triton contracts](triton-reductions.md).
 
 ## Standalone masked sampling
 

@@ -67,3 +67,8 @@ def test_runtime_error_is_not_success(tmp_path,monkeypatch,capsys):
     monkeypatch.setattr(cli.TransformersEngine,'from_pretrained',fail)
     assert cli.main(base(tmp_path))==1
     output=capsys.readouterr();assert not output.out and 'model load failed' in output.err
+
+
+def test_explicit_backend_reaches_loader(tmp_path,fake_loader,capsys):
+    assert cli.main(base(tmp_path)+['--backend','triton','--device','cuda']) == 0
+    assert fake_loader[0][2]['backend'] == 'triton'

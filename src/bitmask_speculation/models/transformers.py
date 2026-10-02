@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from ..decoding._validation import token_id, vocabulary_size
 from ..decoding.verification import VerifiedToken, verify_prefix
 from ..grammar import GrammarState, GrammarTerminatedError
-from ..grammar.selection import masked_argmax
+from ..kernels.dispatch import select_token, validate_backend
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
@@ -22,7 +22,7 @@ class TransformersGreedyModel:
     Generation-config processors, sampling and model offloading are not applied.
     """
 
-    def __init__(self, model: PreTrainedModel) -> None:
+    def __init__(self, model: PreTrainedModel, *, backend: str = "reference") -> None:
         import torch
 
         if model.training:
@@ -35,6 +35,8 @@ class TransformersGreedyModel:
         if len(devices) != 1 or next(iter(devices)).type == "meta":
             raise ValueError("model tensors must reside on one materialized device")
         self._device = next(iter(devices))
+        validate_backend(backend, self._device)
+        self.backend = backend
         self._model = model
         self._torch = torch
         self._vocab_size = vocab_size
@@ -72,7 +74,7 @@ class TransformersGreedyModel:
         if grammar is not None:
             if grammar.is_terminated():
                 raise GrammarTerminatedError("grammar has terminated")
-            token = masked_argmax(scores, grammar.allowed_token_ids())
+            token = select_token(scores, grammar, self.backend)
             if not grammar.accept_token(token):
                 raise ValueError("grammar rejected its selected token")
             return token
