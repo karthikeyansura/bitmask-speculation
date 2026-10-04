@@ -44,3 +44,18 @@ snapshot to the model device each selection. Float16 and bfloat16 scores widen
 exactly to float32; float64 is rejected by native selection. No KV caching,
 GPU-resident grammar, or transfer elimination is implied. C4 scheduling still
 uses the CPU mask-density reference; the fused Triton count does not replace it.
+
+## Scratch ownership
+
+Pass a `ReductionWorkspace(device)` as `workspace=` to reuse partial-reduction
+buffers. It binds to the device's current CUDA stream at construction. Using it
+on a different device or stream raises; concurrent host submissions raise rather
+than race. A workspace grows to its largest requested capacity. `clear()` releases
+scratch on its bound stream. `allocation_count` counts scratch allocation groups.
+
+Returned token/count/status tensors are always newly owned and remain unchanged
+by subsequent calls. Only intermediate buffers are reused. The Transformers
+adapter creates one workspace lazily for each Triton adapter, binding it to the
+first constrained-selection stream. Create separate adapters for other streams.
+CPU masks and result tensors are still allocated per selection. Allocation tests
+measure reuse; speedup requires a separate GPU timing experiment.
