@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from .workspace import ReductionWorkspace
+
 from ._validation import selection_inputs
 
 BLOCK_SIZE = 1024
@@ -53,7 +55,7 @@ class MaskedReduction:
         return self
 
 
-def masked_reduce(logits, mask) -> MaskedReduction:
+def masked_reduce(logits, mask, *, workspace: ReductionWorkspace | None = None) -> MaskedReduction:
     """Launch asynchronously on the input device's current stream.
 
     Inputs are contiguous float32 logits and signed int32 packed words already
@@ -66,20 +68,18 @@ def masked_reduce(logits, mask) -> MaskedReduction:
     require_device(logits.device)
     from ._triton_kernels import partial_reduce, finish_reduce
     with torch.cuda.device(logits.device):
-        maximum = torch.empty(blocks, device=logits.device, dtype=torch.float32)
-        index = torch.empty(blocks, device=logits.device, dtype=torch.int32)
-        count = torch.empty_like(index)
-        bad = torch.empty_like(index)
+        scratch = workspace if workspace is not None else ReductionWorkspace(logits.device)
         token_out = torch.empty((), device=logits.device, dtype=torch.int64)
         count_out = torch.empty_like(token_out)
         status = torch.empty((), device=logits.device, dtype=torch.int32)
-        partial_reduce[(blocks,)](logits, mask, maximum, index, count, bad,
-                                  vocab, BLOCK_SIZE)
-        finish_reduce[(1,)](maximum, index, count, bad, token_out, count_out,
-                            status, vocab, blocks, final_width)
+        with scratch.acquire(logits.device, blocks) as (maximum, index, count, bad):
+            partial_reduce[(blocks,)](logits, mask, maximum, index, count, bad,
+                                      vocab, BLOCK_SIZE)
+            finish_reduce[(1,)](maximum, index, count, bad, token_out, count_out,
+                                status, vocab, blocks, final_width)
         return MaskedReduction(token_out, count_out, status)
 
 
-def masked_argmax(logits, mask):
+def masked_argmax(logits, mask, *, workspace: ReductionWorkspace | None = None):
     """Checked selection; returns an owned int64 device scalar."""
-    return masked_reduce(logits, mask).check().token_id
+    return masked_reduce(logits, mask, workspace=workspace).check().token_id

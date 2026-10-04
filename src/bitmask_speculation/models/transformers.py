@@ -37,6 +37,7 @@ class TransformersGreedyModel:
         self._device = next(iter(devices))
         validate_backend(backend, self._device)
         self.backend = backend
+        self._reduction_workspace = None
         self._model = model
         self._torch = torch
         self._vocab_size = vocab_size
@@ -74,7 +75,10 @@ class TransformersGreedyModel:
         if grammar is not None:
             if grammar.is_terminated():
                 raise GrammarTerminatedError("grammar has terminated")
-            token = select_token(scores, grammar, self.backend)
+            if self.backend == 'triton' and self._reduction_workspace is None:
+                from ..kernels.workspace import ReductionWorkspace
+                self._reduction_workspace = ReductionWorkspace(self._device)
+            token = select_token(scores, grammar, self.backend, workspace=self._reduction_workspace)
             if not grammar.accept_token(token):
                 raise ValueError("grammar rejected its selected token")
             return token

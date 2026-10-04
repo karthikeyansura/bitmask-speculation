@@ -80,6 +80,9 @@ grammar masks to the GPU and checks selection status before state transitions.
 See [Triton and dispatch contracts](docs/triton-reductions.md),
 [native contracts](docs/cuda-primitives.md) and [CUDA validation](docs/cuda-validation.md).
 
+Triton scratch reuse is owned by one device and stream; returned outputs retain
+independent storage.
+
 ## Evaluation
 
 Speculative output must match target-only greedy output under the same grammar.

@@ -36,7 +36,7 @@ def packed_mask(grammar):
     return torch.tensor([w if w < 2**31 else w-2**32 for w in words],dtype=torch.int32)
 
 
-def select_token(scores, grammar, backend='reference') -> int:
+def select_token(scores, grammar, backend='reference', *, workspace=None) -> int:
     """Select without advancing grammar; native error status is checked first.
 
     The engine explicitly copies CPU grammar masks to CUDA and widens fp16/bf16
@@ -45,6 +45,8 @@ def select_token(scores, grammar, backend='reference') -> int:
     """
     import torch
     validate_backend(backend, scores.device)
+    if workspace is not None and backend != 'triton':
+        raise ValueError('workspace is only supported by the Triton backend')
     if backend == 'reference':
         from ..grammar.selection import masked_argmax
         return masked_argmax(scores,grammar.allowed_token_ids())
@@ -56,4 +58,6 @@ def select_token(scores, grammar, backend='reference') -> int:
         from .cuda import masked_argmax
     else:
         from .triton import masked_argmax
+    if backend == 'triton':
+        return int(masked_argmax(values, mask, workspace=workspace).item())
     return int(masked_argmax(values, mask).item())
