@@ -59,3 +59,15 @@ adapter creates one workspace lazily for each Triton adapter, binding it to the
 first constrained-selection stream. Create separate adapters for other streams.
 CPU masks and result tensors are still allocated per selection. Allocation tests
 measure reuse; speedup requires a separate GPU timing experiment.
+
+## Independent batch rows
+
+`batched_masked_reduce` accepts contiguous float32 `[B,V]` logits and int32
+`[B,ceil(V/32)]` masks on the same CUDA device. It returns owned token/count/status
+vectors. Every row has its own mask and status; errors in one row do not alter
+other rows. `.check()` reports the invalid row indices. Strided or broadcast
+views fail explicitly. Batch sizes from 0 to 65,535 are supported; an empty vocabulary is not.
+
+Single-row and batched calls share the same two kernels and workspace ownership
+rules. A workspace caches enough partial storage for its largest `B * blocks`.
+The primitives do not imply batched grammar matchers or a batched request loop.

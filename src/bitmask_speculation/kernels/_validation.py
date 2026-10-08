@@ -38,3 +38,23 @@ def temperature_input(temperature):
     if not math.isfinite(temperature) or temperature < 0:
         raise ValueError("temperature must be finite and nonnegative")
     return float(temperature)
+
+
+def batched_selection_inputs(logits, mask):
+    import torch
+    if not isinstance(logits, torch.Tensor) or logits.dtype != torch.float32:
+        raise TypeError("logits must be a float32 tensor")
+    if not isinstance(mask, torch.Tensor) or mask.dtype != torch.int32:
+        raise TypeError("mask must be an int32 tensor")
+    for value in (logits, mask):
+        if value.layout != torch.strided or value.ndim != 2 or not value.is_contiguous():
+            raise ValueError("batch inputs must be contiguous two-dimensional strided tensors")
+    batch, vocab = logits.shape
+    if batch > 65535:
+        raise ValueError('batch size exceeds the CUDA grid-y limit of 65535')
+    vocabulary_size(vocab)
+    if mask.shape != (batch, (vocab + 31)//32):
+        raise ValueError("mask shape must be [batch, ceil(vocab_size / 32)]")
+    if logits.device.type != "cuda" or logits.device != mask.device:
+        raise ValueError("batch inputs must be on the same CUDA device")
+    return batch, vocab

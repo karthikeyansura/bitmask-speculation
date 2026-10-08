@@ -7,6 +7,14 @@ import triton.language as tl
 @triton.jit
 def partial_reduce(Logits, Mask, Max, Index, Count, Bad,
                    V: tl.constexpr, BLOCK: tl.constexpr):
+    row = tl.program_id(1).to(tl.int64)
+    Logits += row * V
+    Mask += row * tl.cdiv(V, 32)
+    partial_offset = row * tl.cdiv(V, BLOCK)
+    Max += partial_offset
+    Index += partial_offset
+    Count += partial_offset
+    Bad += partial_offset
     block = tl.program_id(0)
     token = block * BLOCK + tl.arange(0, BLOCK)
     inside = token < V
@@ -26,6 +34,14 @@ def partial_reduce(Logits, Mask, Max, Index, Count, Bad,
 @triton.jit
 def finish_reduce(Max, Index, Count, Bad, TokenOut, CountOut, StatusOut,
                   V: tl.constexpr, N: tl.constexpr, REDUCE: tl.constexpr):
+    row = tl.program_id(0).to(tl.int64)
+    Max += row * N
+    Index += row * N
+    Count += row * N
+    Bad += row * N
+    TokenOut += row
+    CountOut += row
+    StatusOut += row
     block = tl.arange(0, REDUCE)
     valid = block < N
     maximums = tl.load(Max + block, valid, other=-float('inf'))
