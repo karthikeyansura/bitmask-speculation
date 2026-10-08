@@ -83,3 +83,46 @@ def masked_reduce(logits, mask, *, workspace: ReductionWorkspace | None = None) 
 def masked_argmax(logits, mask, *, workspace: ReductionWorkspace | None = None):
     """Checked selection; returns an owned int64 device scalar."""
     return masked_reduce(logits, mask, workspace=workspace).check().token_id
+
+
+@dataclass(frozen=True, slots=True)
+class BatchedMaskedReduction:
+    """Owned vectors, with one independent status per input row."""
+
+    token_ids: object
+    valid_counts: object
+    status: object
+
+    def check(self) -> 'BatchedMaskedReduction':
+        codes = self.status.tolist()  # One explicit device-to-host synchronization.
+        errors = [(row, code) for row, code in enumerate(codes) if code]
+        if errors:
+            raise ValueError(f'invalid reduction rows (row, status): {errors}')
+        return self
+
+
+def batched_masked_reduce(logits, mask, *, workspace=None) -> BatchedMaskedReduction:
+    """Reduce [B,V] logits and [B,ceil(V/32)] masks without row broadcasting.
+
+    Inputs must be contiguous; strided views are rejected instead of copied.
+    B=0 returns empty owned outputs. V must satisfy the single-row bound.
+    This primitive does not batch stateful speculative request execution.
+    """
+    import torch
+    from ._validation import batched_selection_inputs
+    batch, vocab = batched_selection_inputs(logits, mask)
+    blocks, final_width = reduction_shape(vocab)
+    require_device(logits.device)
+    from ._triton_kernels import partial_reduce, finish_reduce
+    with torch.cuda.device(logits.device):
+        tokens = torch.empty(batch,device=logits.device,dtype=torch.int64)
+        counts = torch.empty_like(tokens)
+        status = torch.empty(batch,device=logits.device,dtype=torch.int32)
+        if batch == 0:
+            return BatchedMaskedReduction(tokens,counts,status)
+        scratch = workspace if workspace is not None else ReductionWorkspace(logits.device)
+        with scratch.acquire(logits.device, batch * blocks) as (maximum,index,count,bad):
+            partial_reduce[(blocks,batch)](logits,mask,maximum,index,count,bad,vocab,BLOCK_SIZE)
+            finish_reduce[(batch,)](maximum,index,count,bad,tokens,counts,status,
+                                    vocab,blocks,final_width)
+        return BatchedMaskedReduction(tokens,counts,status)

@@ -81,7 +81,8 @@ See [Triton and dispatch contracts](docs/triton-reductions.md),
 [native contracts](docs/cuda-primitives.md) and [CUDA validation](docs/cuda-validation.md).
 
 Triton scratch reuse is owned by one device and stream; returned outputs retain
-independent storage.
+independent storage. Batched reductions operate on independent contiguous rows;
+they do not batch the speculative request loop.
 
 ## Evaluation
 

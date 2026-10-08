@@ -26,3 +26,10 @@ def test_cpu_is_not_a_silent_fallback():
     from bitmask_speculation.kernels.triton import masked_reduce
     with pytest.raises(ValueError, match='CUDA'):
         masked_reduce(torch.zeros(32), torch.tensor([-1], dtype=torch.int32))
+
+
+def test_batch_grid_limit_before_launch():
+    torch = pytest.importorskip('torch')
+    from bitmask_speculation.kernels._validation import batched_selection_inputs
+    with pytest.raises(ValueError,match='grid-y'):
+        batched_selection_inputs(torch.empty((65536,1)),torch.empty((65536,1),dtype=torch.int32))
