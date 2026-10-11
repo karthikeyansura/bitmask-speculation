@@ -110,3 +110,23 @@ sampling primitive does not establish stochastic speculative decoding.
 - [Documentation index](docs/index.md)
 - [Design and decoding contracts](docs/design.md)
 - [Development and installed-wheel checks](docs/development.md)
+
+### Reduction timings
+
+```bash
+python -m bitmask_speculation.benchmarks reductions \
+  --backend triton --rows 6 --vocab 151936 --density .01 \
+  --output /tmp/reductions-triton
+```
+
+Requires a CUDA host and the selected backend. `torch`, `cuda` and `triton`
+compute the same masked argmax, exact valid-token count and error status. CUDA
+uses one native reduction per row plus stacking; Triton uses a batched launch.
+Each sample measures a whole batch, not one token or one row.
+
+The runner separates CUDA-graph device replay, asynchronous Python wrapper
+latency, and wrapper latency with a host status check on every call. Graph replay
+amortizes dispatch over `--iterations` operations; it excludes Python allocation
+and is not an isolated-kernel profiler. JIT compilation and warmup precede timing.
+Raw samples, configuration, source hashes and environment details are written to
+a new output directory; failures retain completed records.
