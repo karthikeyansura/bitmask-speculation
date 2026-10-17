@@ -119,20 +119,7 @@ class TransformersEngine:
             raise ValueError("speculative modes require a draft model")
         if type(max_new_tokens) is not int or max_new_tokens < 0:
             raise ValueError("max_new_tokens must be a nonnegative integer")
-        grammar_factory = None
-        if schema is not None:
-            import xgrammar as xgr
-            from ..grammar.xgrammar import XGrammarState
-
-            document = schema_document(schema)
-            if self._compiler is None:
-                info = xgr.TokenizerInfo.from_huggingface(
-                    self.tokenizer, vocab_size=self.decoder.target.vocab_size,
-                    stop_token_ids=list(self.eos_token_ids),
-                )
-                self._compiler = xgr.GrammarCompiler(info, max_threads=1)
-            compiled = self._compiler.compile_json_schema(document)
-            grammar_factory = lambda: XGrammarState(compiled)
+        grammar_factory = None if schema is None else self.prepare_grammar(schema)
         tokens = self.tokenizer.encode(prompt, add_special_tokens=True)
         result = self.decoder.generate(
             tokens, max_new_tokens=max_new_tokens, mode=mode,
@@ -142,3 +129,18 @@ class TransformersEngine:
         return replace(result, text=self.tokenizer.decode(
             list(result.token_ids), skip_special_tokens=False, clean_up_tokenization_spaces=False,
         ))
+
+    def prepare_grammar(self, schema: str | dict | bool):
+        """Compile once and return a factory creating independent matcher states."""
+        import xgrammar as xgr
+        from ..grammar.xgrammar import XGrammarState
+
+        document = schema_document(schema)
+        if self._compiler is None:
+            info = xgr.TokenizerInfo.from_huggingface(
+                self.tokenizer, vocab_size=self.decoder.target.vocab_size,
+                stop_token_ids=list(self.eos_token_ids),
+            )
+            self._compiler = xgr.GrammarCompiler(info, max_threads=1)
+        compiled = self._compiler.compile_json_schema(document)
+        return lambda: XGrammarState(compiled)

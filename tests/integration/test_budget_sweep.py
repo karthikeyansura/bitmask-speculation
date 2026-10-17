@@ -163,3 +163,28 @@ def test_nonpositive_clock_intervals_become_errors(setup):
     records = run_budget_sweep(target, draft, case, **(kwargs | {"clock": lambda: 1.0}))
     assert all(r.error and "positive" in r.error for r in records)
     assert all(r.decode_seconds is None for r in records)
+
+
+def test_persistence_callback_runs_after_validation_and_failure_aborts(setup):
+    target, draft, case, kwargs, _, events = setup
+    saved = []
+    def save(record):
+        assert events[-1] == 'clock'
+        saved.append(record)
+        if len(saved) == 2:
+            raise OSError('disk full')
+    with pytest.raises(OSError, match='disk full'):
+        run_budget_sweep(target, draft, case, **kwargs, on_record=save)
+    assert len(saved) == 2 and all(r.exact_match for r in saved)
+
+
+def test_reference_callback_precedes_measurements(setup):
+    target, draft, case, kwargs, _, events = setup
+    references = []
+    def save(refs):
+        assert 'clock' not in events
+        references.append(refs)
+    records = run_budget_sweep(target, draft, case, **kwargs, on_reference=save)
+    assert len(references) == 1 and set(references[0]) == {False, True}
+    assert all(r.token_ids == references[0][r.variant not in {'c1','target_unconstrained'}].token_ids
+               for r in records)

@@ -18,6 +18,21 @@ def parser():
     kernel.add_argument('--warmups', type=int, default=5)
     kernel.add_argument('--repetitions', type=int, default=20)
     kernel.add_argument('--output', required=True)
+    decode = commands.add_parser('decode', help='time full-prefix decoding over a workload manifest')
+    decode.add_argument('--workloads', required=True)
+    decode.add_argument('--target', required=True)
+    decode.add_argument('--draft', required=True)
+    decode.add_argument('--target-revision')
+    decode.add_argument('--draft-revision')
+    decode.add_argument('--device', default='cpu')
+    decode.add_argument('--dtype', choices=('float32', 'float16', 'bfloat16'), default='float32')
+    decode.add_argument('--backend', choices=('reference', 'cuda', 'triton'), default='reference')
+    decode.add_argument('--local-files-only', action='store_true')
+    decode.add_argument('--chat-template', action='store_true')
+    decode.add_argument('--budgets', type=int, nargs='+', default=[1, 2, 4, 8])
+    decode.add_argument('--warmups', type=int, default=1)
+    decode.add_argument('--repetitions', type=int, default=5)
+    decode.add_argument('--output', required=True)
     return root
 
 
@@ -25,8 +40,12 @@ def main(argv=None):
     root = parser()
     args = root.parse_args(argv)
     try:
-        from .reductions import run_reductions
-        run_reductions(args)
+        if args.command == 'reductions':
+            from .reductions import run_reductions
+            run_reductions(args)
+        else:
+            from .decoding import run_decoding
+            run_decoding(args)
     except (ValueError, OSError, ImportError, RuntimeError) as exc:
         print(f'error: {exc}', file=sys.stderr)
         return 2

@@ -18,6 +18,8 @@ def run_budget_sweep(
     synchronize: Callable[[], None], fixed_budgets: Sequence[int] = (1, 2, 4, 8),
     policy: DensityPolicy = DensityPolicy(), repetitions: int = 3, warmups: int = 1,
     clock: Callable[[], float] = perf_counter,
+    on_record: Callable[[TrialRecord], None] | None = None,
+    on_reference: Callable[[dict], None] | None = None,
 ) -> tuple[TrialRecord, ...]:
     """Warm every configuration, rotate order, and retain every measured trial.
 
@@ -39,6 +41,10 @@ def run_budget_sweep(
         raise TypeError("policy must be a DensityPolicy")
     if not callable(synchronize) or not callable(grammar_factory) or not callable(clock):
         raise TypeError("synchronize, grammar_factory and clock must be callable")
+    if on_record is not None and not callable(on_record):
+        raise TypeError("on_record must be callable")
+    if on_reference is not None and not callable(on_reference):
+        raise TypeError("on_reference must be callable")
     metadata = dict(metadata)
     if metadata.get("timing_scope") != "full_prefix_loop":
         raise ValueError("budget sweeps require timing_scope=full_prefix_loop")
@@ -76,6 +82,8 @@ def run_budget_sweep(
                              None, fresh("target_constrained") if constrained else None)
         for constrained in (False, True)
     }
+    if on_reference is not None:
+        on_reference(references)
     for _ in range(warmups):
         for variant, budget in configurations:
             result = execute(variant, budget, fresh(variant))
@@ -114,6 +122,8 @@ def run_budget_sweep(
                     **options,
                 )
             records.append(record)
+            if on_record is not None:
+                on_record(record)  # Persistence failures abort; never relabel as model errors.
     return tuple(records)
 
 
