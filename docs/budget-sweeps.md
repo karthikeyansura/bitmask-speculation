@@ -81,9 +81,10 @@ not separate prefill from decode or reuse KV caches.
 
 Measured failures become explicit error records and the runner continues once
 pending device work is drained. They suppress aggregate rates for the affected
-configuration. A broken synchronizer aborts the sweep. Results are returned at
-completion; this is not a crash-resumable runner. Choose bounded workloads and
-persist each completed sweep under a new output filename.
+configuration. A broken synchronizer aborts the sweep. `on_record(record)` can persist each completed trial outside the timed interval;
+`on_reference(references)` receives the independent target generations before
+warmup. Persistence errors abort the sweep. Records are also returned at completion.
+The runner does not resume partial runs.
 
 ## Interpreting records
 

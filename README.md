@@ -130,3 +130,26 @@ amortizes dispatch over `--iterations` operations; it excludes Python allocation
 and is not an isolated-kernel profiler. JIT compilation and warmup precede timing.
 Raw samples, configuration, source hashes and environment details are written to
 a new output directory; failures retain completed records.
+
+### Decoding timings
+
+```bash
+python -m bitmask_speculation.benchmarks decode \
+  --target /path/to/target --draft /path/to/draft --local-files-only \
+  --workloads benchmarks/baseline.json --device cuda:0 --dtype bfloat16 \
+  --backend triton --budgets 1 2 4 8 --repetitions 5 \
+  --output /tmp/decoding-triton
+```
+
+Hub sources require full revision SHAs. Local model files are hashed before
+loading. `--chat-template` renders a user turn with a generation prompt and
+`enable_thinking=False`; the default uses raw prompt text. Rendered prompts and
+IDs are retained. Use identical settings across comparisons.
+
+The measured interval includes full-prefix model evaluation, proposals, masks,
+verification and scheduling, with synchronization at both ends. Loading,
+tokenization, grammar compilation, reference generation and warmup are outside
+that interval. Initial matcher creation, detokenization and schema checks are
+also excluded. This decoder does not reuse KV caches or separate prefill latency.
+Each measured trial is flushed to `trials.jsonl` before proceeding; an interrupted
+run remains incomplete and cannot be silently resumed into the same directory.
