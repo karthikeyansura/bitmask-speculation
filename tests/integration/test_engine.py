@@ -160,3 +160,35 @@ def test_installed_decoding_benchmark_persists_trials(local_pair, tmp_path):
     assert 'model_load_seconds' in json.loads((output/'setup.json').read_text())
     repeat = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=30)
     assert repeat.returncode == 2 and 'File exists' in repeat.stderr
+
+
+def test_regime_manifest_loads_from_arbitrary_directory():
+    from bitmask_speculation.benchmarking import load_workloads
+    root = Path(__file__).resolve().parents[2]
+    cases = load_workloads(root/'benchmarks/regimes.json')
+    assert len(cases) == 6 and len({c.fingerprint for c in cases}) == 6
+    assert next(c for c in cases if c.case_id == 'free-text').schema_json == '{"type":"string"}'
+
+
+def test_benchmark_report_recomputes_and_rejects_partial_runs(local_pair, tmp_path):
+    from bitmask_speculation.benchmarks.decoding import run_decoding
+    from bitmask_speculation.benchmarks.report import report_directory
+    from types import SimpleNamespace
+    (tmp_path/'schema.json').write_text('{"enum":["a"]}')
+    (tmp_path/'cases.json').write_text(json.dumps({'version':1,'cases':[
+        {'case_id':'enum','prompt':'Choose:', 'schema':'schema.json','max_new_tokens':8}]}))
+    output = tmp_path/'run'
+    run_decoding(SimpleNamespace(command='decode',workloads=str(tmp_path/'cases.json'),
+        target=str(local_pair[0]),draft=str(local_pair[1]),target_revision=None,draft_revision=None,
+        device='cpu',dtype='float32',backend='reference',local_files_only=True,
+        chat_template=False,budgets=[1],warmups=1,repetitions=2,output=str(output)))
+    report=report_directory(output)
+    assert len(report['cases'])==1 and len(report['cases'][0]['configurations'])==6
+    assert len((output/'references.jsonl').read_text().splitlines()) == 1
+    trials=output/'trials.jsonl'
+    original=trials.read_text()
+    trials.write_text('\n'.join(original.splitlines()[:-1])+'\n')
+    with pytest.raises(ValueError,match='coverage'):report_directory(output)
+    trials.write_text(original)
+    (output/'status.json').write_text('{"status":"failed"}')
+    with pytest.raises(ValueError,match='completed'):report_directory(output)

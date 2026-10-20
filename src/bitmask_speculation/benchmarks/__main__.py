@@ -33,6 +33,8 @@ def parser():
     decode.add_argument('--warmups', type=int, default=1)
     decode.add_argument('--repetitions', type=int, default=5)
     decode.add_argument('--output', required=True)
+    report = commands.add_parser('report', help='recompute comparisons from completed raw trials')
+    report.add_argument('run_directory')
     return root
 
 
@@ -43,6 +45,10 @@ def main(argv=None):
         if args.command == 'reductions':
             from .reductions import run_reductions
             run_reductions(args)
+        elif args.command == 'report':
+            import json
+            from .report import report_directory
+            print(json.dumps(report_directory(args.run_directory), indent=2, allow_nan=False))
         else:
             from .decoding import run_decoding
             run_decoding(args)

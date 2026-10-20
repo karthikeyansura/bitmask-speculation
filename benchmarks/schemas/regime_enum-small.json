@@ -1,0 +1,7 @@
+{
+  "enum": [
+    "allow",
+    "deny",
+    "audit"
+  ]
+}

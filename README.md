@@ -153,3 +153,18 @@ that interval. Initial matcher creation, detokenization and schema checks are
 also excluded. This decoder does not reuse KV caches or separate prefill latency.
 Each measured trial is flushed to `trials.jsonl` before proceeding; an interrupted
 run remains incomplete and cannot be silently resumed into the same directory.
+
+Use `--workloads benchmarks/regimes.json` for enum-heavy, scalar enum, nested,
+mixed, free-text JSON-string and open-object cases. Each case has an explicit
+schema, prompt and token limit. Free text here still uses JSON string syntax.
+
+```bash
+python -m bitmask_speculation.benchmarks report /tmp/decoding-triton
+```
+
+The report recomputes comparisons from raw trials and rejects missing cases,
+configurations or repetitions. C1 uses the unconstrained target baseline;
+C2–C4 use the constrained target. A latency ratio is emitted only when both sides
+finish, match their target references exactly and pass full-schema validation
+in every repetition. Errors and length-limited outputs remain visible. Ratios
+use total latency across matched repetitions; cases are not averaged together.
