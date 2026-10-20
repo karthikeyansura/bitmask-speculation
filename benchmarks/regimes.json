@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "enum-heavy",
+      "prompt": "Return only a JSON object: action read, resource file, priority normal, result allow.",
+      "schema": "schemas/regime_enum-heavy.json",
+      "max_new_tokens": 192
+    },
+    {
+      "case_id": "enum-small",
+      "prompt": "Return only the JSON string \"allow\".",
+      "schema": "schemas/regime_enum-small.json",
+      "max_new_tokens": 64
+    },
+    {
+      "case_id": "free-text",
+      "prompt": "Return only a JSON string with one short sentence explaining a grammar mask.",
+      "schema": "schemas/regime_free-text.json",
+      "max_new_tokens": 192
+    },
+    {
+      "case_id": "mixed-record",
+      "prompt": "Return only a JSON object with status ready, count 3, and a short reason for readiness.",
+      "schema": "schemas/regime_mixed-record.json",
+      "max_new_tokens": 192
+    },
+    {
+      "case_id": "nested-record",
+      "prompt": "Return only a JSON object with job name decode and state queued, and tags [\"inference\"].",
+      "schema": "schemas/regime_nested-record.json",
+      "max_new_tokens": 192
+    },
+    {
+      "case_id": "open-object",
+      "prompt": "Return only a JSON object describing a GPU with keys name and purpose; keep values short.",
+      "schema": "schemas/regime_open-object.json",
+      "max_new_tokens": 192
+    }
+  ]
+}

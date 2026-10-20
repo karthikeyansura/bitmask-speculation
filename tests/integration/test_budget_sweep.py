@@ -178,6 +178,34 @@ def test_persistence_callback_runs_after_validation_and_failure_aborts(setup):
     assert len(saved) == 2 and all(r.exact_match for r in saved)
 
 
+def test_report_gates_speedups_and_selects_correct_baselines(setup):
+    from bitmask_speculation.benchmarks.report import compare_case
+    target, draft, case, kwargs, _, _ = setup
+    records = list(run_budget_sweep(target, draft, case, **kwargs))
+    report = compare_case(records, budgets=[1,4], repetitions=3)
+    assert all(row['latency_speedup'] == 1 for row in report['configurations'])
+    assert {row['baseline'] for row in report['configurations'] if row['variant']=='c1'} == {'target_unconstrained'}
+    records[0] = replace(records[0], schema_valid=False)
+    report = compare_case(records, budgets=[1,4], repetitions=3)
+    assert all(row['latency_speedup'] is None for row in report['configurations']
+               if row['variant'] in {'c1','target_unconstrained'})
+    assert all(row['latency_speedup'] == 1 for row in report['configurations']
+               if row['variant'] in {'c2','c3','c4','target_constrained'})
+    for changed in (records[:-1], records + [records[0]], [r for r in records if r.variant != 'c1']):
+        with pytest.raises(ValueError): compare_case(changed, budgets=[1,4], repetitions=3)
+
+
+@pytest.mark.parametrize('changes',[{'exact_match':False}, {'stop_reason':'length','eos_token_id':None}, {'schema_valid':False}])
+def test_report_suppresses_incorrect_or_incomplete_configuration(setup,changes):
+    from bitmask_speculation.benchmarks.report import compare_case
+    target, draft, case, kwargs, _, _ = setup
+    records = list(run_budget_sweep(target, draft, case, **kwargs))
+    i = next(i for i,r in enumerate(records) if r.variant == 'c2')
+    records[i] = replace(records[i], **changes)
+    rows = compare_case(records,budgets=[1,4],repetitions=3)['configurations']
+    assert next(r for r in rows if r['variant']=='c2' and r['draft_budget']==records[i].draft_budget)['latency_speedup'] is None
+
+
 def test_reference_callback_precedes_measurements(setup):
     target, draft, case, kwargs, _, events = setup
     references = []

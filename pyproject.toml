@@ -59,6 +59,7 @@ include = [
     "/tests/gpu",
     "/csrc",
     "/benchmarks/baseline.json",
+    "/benchmarks/regimes.json",
     "/benchmarks/schemas",
     "/README.md",
     "/LICENSE",

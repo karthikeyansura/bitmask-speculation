@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "enum": [
+        "read",
+        "write",
+        "list",
+        "delete"
+      ]
+    },
+    "resource": {
+      "enum": [
+        "file",
+        "directory",
+        "socket",
+        "process"
+      ]
+    },
+    "priority": {
+      "enum": [
+        "low",
+        "normal",
+        "high"
+      ]
+    },
+    "result": {
+      "enum": [
+        "allow",
+        "deny",
+        "audit"
+      ]
+    }
+  },
+  "required": [
+    "action",
+    "resource",
+    "priority",
+    "result"
+  ],
+  "additionalProperties": false
+}
