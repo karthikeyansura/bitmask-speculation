@@ -42,8 +42,8 @@ For Hub models, provide full revision SHAs with `--target-revision` and
 `--device cuda --dtype bfloat16` on a compatible GPU host; CPU/float32 is the
 default. Model loading never starts cloud resources.
 
-The [Python API](docs/engine.md) reuses loaded models across requests. The
-[CLI](docs/cli.md) returns JSON with content tokens, stop reason, accounting and
+The [Python API](docs/usage.md#engine) reuses loaded models across requests. The
+[CLI](docs/usage.md#cli) returns JSON with content tokens, stop reason, accounting and
 scheduling decisions. See the [runnable example](examples/quickstart.py).
 
 ## Decoding paths
@@ -62,8 +62,8 @@ the target supplies a correction and discards the remaining proposals. An
 all-accepted round can supply a target bonus token, subject to EOS and output
 budget. Draft grammar state is isolated from the committed target state.
 
-The [prefix walkthrough](docs/prefix-acceptance.md) explains alignment and state
-transitions. [Proposal accounting](docs/proposal-accounting.md) distinguishes
+The [prefix walkthrough](docs/design.md#prefix-acceptance) explains alignment and state
+transitions. [Proposal accounting](docs/design.md#proposal-accounting) distinguishes
 proposed, verified, accepted and emitted tokens. C4 records each density query and
 requested/effective budget so its decisions can be inspected.
 
@@ -77,8 +77,8 @@ outputs have independent ownership and launches use the current CUDA stream.
 Generation accepts explicit `reference`, `cuda`, or `triton` constrained-selection
 backends while retaining full-prefix model evaluation. Native dispatch copies CPU
 grammar masks to the GPU and checks selection status before state transitions.
-See [Triton and dispatch contracts](docs/triton-reductions.md),
-[native contracts](docs/cuda-primitives.md) and [CUDA validation](docs/cuda-validation.md).
+See [Triton and dispatch contracts](docs/kernels.md#triton-reductions),
+[native contracts](docs/kernels.md#cuda-primitives) and [CUDA validation](docs/development.md#cuda-tests).
 
 Triton scratch reuse is owned by one device and stream; returned outputs retain
 independent storage. Batched reductions operate on independent contiguous rows;
@@ -88,13 +88,13 @@ they do not batch the speculative request loop.
 
 Speculative output must match target-only greedy output under the same grammar.
 Schema validity, termination and exact token agreement are separate checks.
-The [baseline workloads](docs/baseline-workloads.md) and
-[budget sweep](docs/budget-sweeps.md) retain individual trials, failures and C4
+The [baseline workloads](docs/benchmarks.md#baseline-workloads) and
+[budget sweep](docs/benchmarks.md#budget-sweeps) retain individual trials, failures and C4
 traces across enum, nested and mixed schemas.
 
 Correctness results do not establish a speedup. Kernel, wrapper and end-to-end
 measurements need distinct timing boundaries, warmup and synchronization.
-See [validation records](docs/validation.md) for evidence requirements.
+See [validation records](docs/benchmarks.md#validation) for evidence requirements.
 
 ## Development
 
@@ -107,8 +107,8 @@ CPU hosts skip GPU tests explicitly. A single GPU cannot execute the two-device
 isolation check. The generation API is greedy, single-request and uncached; the
 sampling primitive does not establish stochastic speculative decoding.
 
-- [Documentation index](docs/index.md)
-- [Design and decoding contracts](docs/design.md)
+- [Documentation index](docs/development.md)
+- [Design and decoding contracts](docs/design.md#design)
 - [Development and installed-wheel checks](docs/development.md)
 
 ### Reduction timings
