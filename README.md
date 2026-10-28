@@ -9,162 +9,122 @@
 
 # bitmask-speculation
 
-Packed grammar masks for draft scheduling and token verification in structured
-LLM decoding. The project combines grammar-constrained draft proposals, ordered
-prefix verification and density-based draft budgets, with standalone CUDA
-primitives for popcount, masked argmax and categorical sampling.
+Grammar-constrained decoding masks every token a schema forbids; speculative
+decoding lets a small draft model propose tokens that the target verifies.
+Combined naively, the draft ignores the grammar, so the target rejects proposals
+it would have masked out, and every masked step adds a vocabulary-wide reduction.
 
-A narrow grammar can reduce invalid proposals without making the draft agree
-with the target. Mask density is a scheduling signal, not an acceptance guarantee;
-its overhead and effect on throughput must be measured.
+C3 applies the target's grammar to the draft as well, and ordered prefix
+verification keeps output identical to constrained target-greedy decoding. C4
+also sets each round's draft budget from the mask density of the committed
+grammar state. Packed 32-bit token masks feed CUDA and Triton kernels for exact
+valid-token counts and deterministic masked argmax.
 
-## Use
+## Install
 
-Python 3.12 or later. From this checkout:
+Python 3.12 or later. From the checkout:
 
 ```bash
-uv sync --extra models --extra grammar
+uv sync --locked --extra models --extra grammar --extra benchmarks
 source .venv/bin/activate
 bitmask-speculation generate --help
 ```
 
-Generate from locally saved model/tokenizer directories:
+Add `--extra triton` on a Linux NVIDIA host for Triton. CUDA extension builds also
+need a compatible CUDA toolkit, C++ compiler and Ninja. See the
+[development guide](docs/development.md) for installed-wheel and GPU checks.
+The base package imports without model dependencies or a CUDA compiler.
+
+## Generate
 
 ```bash
 bitmask-speculation generate 'Return a colour:' \
-  --target /path/to/target --draft /path/to/draft \
-  --mode c3 --schema-json '{"enum":["red","blue"]}' \
-  --max-new-tokens 32 --local-files-only
+  --target /path/to/target --draft /path/to/draft --local-files-only \
+  --mode c3 --schema-json '{"enum":["red","blue"]}' --max-new-tokens 32
 ```
 
-For Hub models, provide full revision SHAs with `--target-revision` and
-`--draft-revision`. Target and draft tokenizer definitions must match. Choose
-`--device cuda --dtype bfloat16` on a compatible GPU host; CPU/float32 is the
-default. Model loading never starts cloud resources.
+For Hub models, supply full `--target-revision` and `--draft-revision` SHAs.
+Target and draft tokenizer definitions must match. Use `--device cuda:0
+--dtype bfloat16 --backend triton` for constrained Triton selection on a supported
+GPU. CPU/float32 with `reference` selection is the default.
 
-The [Python API](docs/usage.md#engine) reuses loaded models across requests. The
-[CLI](docs/usage.md#cli) returns JSON with content tokens, stop reason, accounting and
-scheduling decisions. See the [runnable example](examples/quickstart.py).
+| Mode | Draft selection | Target selection | Budget |
+|---|---|---|---|
+| `target_unconstrained` | No draft | Unconstrained | — |
+| `target_constrained` | No draft | Grammar masked | — |
+| `c1` | Unconstrained | Unconstrained | Fixed |
+| `c2` | Unconstrained | Grammar masked | Fixed |
+| `c3` | Grammar masked | Grammar masked | Fixed |
+| `c4` | Grammar masked | Grammar masked | Mask density |
 
-## Decoding paths
+The target accepts only the consecutive matching prefix. A mismatch supplies a
+target correction; an all-accepted round may supply a bonus token. EOS and the
+remaining output budget bound both cases. Draft grammar state is forked from
+committed state and discarded after verification.
 
-| Mode | Target grammar | Draft grammar | Draft budget |
-| --- | --- | --- | --- |
-| `target_unconstrained` | No | No draft | None |
-| `target_constrained` | Yes | No draft | None |
-| `c1` | No | No | Fixed |
-| `c2` | Yes | No | Fixed |
-| `c3` | Yes | Yes | Fixed |
-| `c4` | Yes | Yes | Mask-density policy |
+The [usage guide](docs/usage.md) covers the Python APIs, CLI and termination
+semantics. [Worked traces](docs/design.md#prefix-acceptance) show prefix rejection,
+bonus-token alignment and proposal accounting.
 
-Verification accepts only the consecutive matching prefix. On the first mismatch,
-the target supplies a correction and discards the remaining proposals. An
-all-accepted round can supply a target bonus token, subject to EOS and output
-budget. Draft grammar state is isolated from the committed target state.
+## Backend contracts
 
-The [prefix walkthrough](docs/design.md#prefix-acceptance) explains alignment and state
-transitions. [Proposal accounting](docs/design.md#proposal-accounting) distinguishes
-proposed, verified, accepted and emitted tokens. C4 records each density query and
-requested/effective budget so its decisions can be inspected.
+| Capability | Reference | CUDA | Triton |
+|---|---|---|---|
+| Constrained greedy selection | CPU or CUDA PyTorch | Linux NVIDIA | Linux NVIDIA, compute capability ≥8.0 |
+| Selection score dtype | Floating PyTorch dtype | float32 primitive | float32 primitive |
+| Packed count | CPU signed-word reference | One row | Fused with argmax |
+| Independent reduction rows | — | Per-row calls | Contiguous `[B,V]` |
+| Scratch reuse | — | — | Device- and stream-bound workspace |
+| Standalone masked sampling | CPU comparison function | Explicit CUDA generator | — |
 
-## Native primitives
+Engine dispatch widens float16/bfloat16 scores to float32 for native selection;
+native float64 selection is rejected. Grammar masks originate on the CPU and are
+copied to the model device. Checked selection reads status before advancing state.
+C4 density queries still use the CPU count reference. Returned kernel outputs own
+their storage; workspace reuse applies only to intermediate reductions.
 
-The optional CUDA extension builds explicitly from packaged sources. It provides
-vocabulary-tail popcount, deterministic masked argmax and standalone masked
-sampling for contiguous single rows. Python and native boundaries check inputs;
-outputs have independent ownership and launches use the current CUDA stream.
+The model adapter evaluates full prefixes with `use_cache=False`. Generation is
+single-request, single-device and greedy. Batched reduction primitives do not
+batch the request loop. The standalone sampler is not a stochastic speculative
+decoder. See [kernel contracts](docs/kernels.md) for shapes, limits and stream rules.
 
-Generation accepts explicit `reference`, `cuda`, or `triton` constrained-selection
-backends while retaining full-prefix model evaluation. Native dispatch copies CPU
-grammar masks to the GPU and checks selection status before state transitions.
-See [Triton and dispatch contracts](docs/kernels.md#triton-reductions),
-[native contracts](docs/kernels.md#cuda-primitives) and [CUDA validation](docs/development.md#cuda-tests).
-
-Triton scratch reuse is owned by one device and stream; returned outputs retain
-independent storage. Batched reductions operate on independent contiguous rows;
-they do not batch the speculative request loop.
-
-## Evaluation
-
-Speculative output must match target-only greedy output under the same grammar.
-Schema validity, termination and exact token agreement are separate checks.
-The [baseline workloads](docs/benchmarks.md#baseline-workloads) and
-[budget sweep](docs/benchmarks.md#budget-sweeps) retain individual trials, failures and C4
-traces across enum, nested and mixed schemas.
-
-Correctness results do not establish a speedup. Kernel, wrapper and end-to-end
-measurements need distinct timing boundaries, warmup and synchronization.
-See [validation records](docs/benchmarks.md#validation) for evidence requirements.
-
-## Development
-
-```bash
-uv sync --extra models --extra grammar --extra benchmarks
-uv run pytest -q
-```
-
-CPU hosts skip GPU tests explicitly. A single GPU cannot execute the two-device
-isolation check. The generation API is greedy, single-request and uncached; the
-sampling primitive does not establish stochastic speculative decoding.
-
-- [Documentation index](docs/development.md)
-- [Design and decoding contracts](docs/design.md#design)
-- [Development and installed-wheel checks](docs/development.md)
-
-### Reduction timings
+## Measure
 
 ```bash
 python -m bitmask_speculation.benchmarks reductions \
   --backend triton --rows 6 --vocab 151936 --density .01 \
-  --output /tmp/reductions-triton
-```
+  --output /tmp/bitmask-reductions
 
-Requires a CUDA host and the selected backend. `torch`, `cuda` and `triton`
-compute the same masked argmax, exact valid-token count and error status. CUDA
-uses one native reduction per row plus stacking; Triton uses a batched launch.
-Each sample measures a whole batch, not one token or one row.
-
-The runner separates CUDA-graph device replay, asynchronous Python wrapper
-latency, and wrapper latency with a host status check on every call. Graph replay
-amortizes dispatch over `--iterations` operations; it excludes Python allocation
-and is not an isolated-kernel profiler. JIT compilation and warmup precede timing.
-Raw samples, configuration, source hashes and environment details are written to
-a new output directory; failures retain completed records.
-
-### Decoding timings
-
-```bash
 python -m bitmask_speculation.benchmarks decode \
   --target /path/to/target --draft /path/to/draft --local-files-only \
-  --workloads benchmarks/baseline.json --device cuda:0 --dtype bfloat16 \
-  --backend triton --budgets 1 2 4 8 --repetitions 5 \
-  --output /tmp/decoding-triton
+  --workloads benchmarks/regimes.json --device cuda:0 --dtype bfloat16 \
+  --backend triton --chat-template --budgets 1 2 4 8 --repetitions 5 \
+  --output /tmp/bitmask-decoding
+
+python -m bitmask_speculation.benchmarks report /tmp/bitmask-decoding
 ```
 
-Hub sources require full revision SHAs. Local model files are hashed before
-loading. `--chat-template` renders a user turn with a generation prompt and
-`enable_thinking=False`; the default uses raw prompt text. Rendered prompts and
-IDs are retained. Use identical settings across comparisons.
+Reduction measurements separate graph-device replay, asynchronous wrapper latency
+and checked wrapper latency. Decode trials include full-prefix model work,
+verification, masks and scheduling; setup and output validation are excluded.
+These comparisons describe the uncached implementation, not a cached serving
+engine. `--chat-template` renders a user turn with `enable_thinking=False`.
 
-The measured interval includes full-prefix model evaluation, proposals, masks,
-verification and scheduling, with synchronization at both ends. Loading,
-tokenization, grammar compilation, reference generation and warmup are outside
-that interval. Initial matcher creation, detokenization and schema checks are
-also excluded. This decoder does not reuse KV caches or separate prefill latency.
-Each measured trial is flushed to `trials.jsonl` before proceeding; an interrupted
-run remains incomplete and cannot be silently resumed into the same directory.
+Each run uses a new output directory and retains source/model identities, hardware,
+configuration, independent references and raw trials. A speedup is emitted only
+when both sides complete, exactly match their target references and validate
+against the full schema in every repetition. Errors and truncated outputs remain
+visible. No aggregate speedup across unlike schemas is reported.
 
-Use `--workloads benchmarks/regimes.json` for enum-heavy, scalar enum, nested,
-mixed, free-text JSON-string and open-object cases. Each case has an explicit
-schema, prompt and token limit. Free text here still uses JSON string syntax.
+[Benchmark methodology](docs/benchmarks.md) defines the timing boundaries,
+repetitions, schema regimes and aggregation rules.
+
+## Test
 
 ```bash
-python -m bitmask_speculation.benchmarks report /tmp/decoding-triton
+uv run --locked --extra models --extra grammar --extra benchmarks pytest -q
 ```
 
-The report recomputes comparisons from raw trials and rejects missing cases,
-configurations or repetitions. C1 uses the unconstrained target baseline;
-C2–C4 use the constrained target. A latency ratio is emitted only when both sides
-finish, match their target references exactly and pass full-schema validation
-in every repetition. Errors and length-limited outputs remain visible. Ratios
-use total latency across matched repetitions; cases are not averaged together.
+CPU hosts skip CUDA execution checks. Device-guard tests require two visible
+CUDA devices in one process. [Development](docs/development.md) includes native
+builds and sanitizer commands.

@@ -261,3 +261,47 @@ sampling and memory/synchronization checks. Device-guard tests require two visib
 CUDA devices in one process. They check input-device selection, restoration of
 the caller's device and rejection of mismatched-device tensors. These tests do
 not exercise distributed inference or multi-GPU throughput.
+
+## Runnable measurements
+
+The installed module `python -m bitmask_speculation.benchmarks` provides
+`reductions`, `decode` and `report`. Use `--help` on each subcommand.
+
+`reductions` computes equivalent masked argmax, exact count and status outputs
+with `torch`, `cuda` or `triton`. CUDA uses per-row native reductions plus stacking;
+Triton uses a batched reduction. Inputs are deterministic seeded float32 scores
+and Bernoulli mask bits, with token zero forced valid in every row. Padding bits
+are zero. Latency is per whole batch.
+
+| Scope | Measured work |
+|---|---|
+| `graph_device` | CUDA-event duration of graph replay, divided by captured iterations; no Python allocation |
+| `async_wrapper` | Host wall time for unchecked calls plus final stream synchronization |
+| `checked_wrapper` | Host wall time with a status read/check on every call plus final synchronization |
+
+Compilation and warmup precede capture and timing. Every result is compared with
+the reference outside the interval. Graph replay amortizes dispatch; it is not
+an isolated-kernel profiler. The report stores raw samples, median, minimum and
+nearest-rank p95. Increase repetitions for meaningful tail estimates.
+
+`decode` loads models once. Remote sources require full revision SHAs; local
+model contents are hashed. Raw prompt text is the default. `--chat-template`
+renders a user turn with a generation prompt and `enable_thinking=False`, then
+encodes without adding special tokens a second time. The rendered text, prompt
+IDs, tokenizer definition and independent constrained/unconstrained references
+are saved. Model loading and per-case tokenization/grammar setup have separate
+timings. Measured records are flushed before the next trial.
+
+`benchmarks/regimes.json` contains six self-contained cases: enum-heavy object,
+scalar enum, nested object, mixed categorical/numeric/text fields, free-text JSON
+string and an open object. Free text still follows JSON string syntax. Each case
+fixes its prompt, full schema and output-token budget; it is not a corpus average.
+
+`report` recomputes per-case comparisons from a completed run. It requires every
+manifest case, configuration and repetition exactly once. C1 compares with the
+unconstrained target; C2–C4 compare with the constrained target. Ratios divide
+summed baseline latency by summed configuration latency over matched repetitions.
+Both sides must finish, match exactly, pass full-schema validation and contain
+finite timings. Failed, incorrect or length-limited trials suppress the ratio.
+No cross-case average is emitted. A partial run retains its raw records and
+failure status; it cannot be resumed into the same directory.
