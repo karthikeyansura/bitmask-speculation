@@ -69,3 +69,4 @@ visible in one process; two separate servers cannot execute those checks.
 - [Generation APIs](usage.md)
 - [CUDA and Triton kernels](kernels.md)
 - [Benchmark methodology](benchmarks.md)
+- [Kernel profiling](profiling.md)

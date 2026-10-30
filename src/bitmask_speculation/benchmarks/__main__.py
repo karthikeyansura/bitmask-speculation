@@ -33,6 +33,16 @@ def parser():
     decode.add_argument('--warmups', type=int, default=1)
     decode.add_argument('--repetitions', type=int, default=5)
     decode.add_argument('--output', required=True)
+    profile = commands.add_parser('profile', help='profile warmed reductions after reference checks')
+    profile.add_argument('--backend', choices=('torch', 'cuda', 'triton'), required=True)
+    profile.add_argument('--device', default='cuda:0')
+    profile.add_argument('--vocab', type=int, default=151936)
+    profile.add_argument('--rows', type=int, default=1)
+    profile.add_argument('--density', type=float, default=.01)
+    profile.add_argument('--seed', type=int, default=1729)
+    profile.add_argument('--iterations', type=int, default=10)
+    profile.add_argument('--warmups', type=int, default=5)
+    profile.add_argument('--output', required=True)
     report = commands.add_parser('report', help='recompute comparisons from completed raw trials')
     report.add_argument('run_directory')
     return root
@@ -45,6 +55,9 @@ def main(argv=None):
         if args.command == 'reductions':
             from .reductions import run_reductions
             run_reductions(args)
+        elif args.command == 'profile':
+            from .profiling import run_profile
+            run_profile(args)
         elif args.command == 'report':
             import json
             from .report import report_directory

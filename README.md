@@ -20,6 +20,26 @@ also sets each round's draft budget from the mask density of the committed
 grammar state. Packed 32-bit token masks feed CUDA and Triton kernels for exact
 valid-token counts and deterministic masked argmax.
 
+## GPU kernels
+
+Triton fuses the packed-mask count with masked argmax and reduces independent
+rows in one batched launch. On one A10G, for six rows of vocabulary 151,936 with
+about 1% valid bits, median microseconds per batch:
+
+| Backend | Graph replay | Async wrapper |
+|---|---:|---:|
+| `torch` | 257.55 | 422.86 |
+| `cuda`, per row | 1517.59 | 1530.46 |
+| `triton`, batched | 6.21 | 116.44 |
+
+Graph replay excludes Python dispatch and allocation; the asynchronous wrapper
+includes them. The per-row CUDA path is slower than PyTorch on this workload.
+Kernel latency is not decoding throughput. With Qwen3-4B / Qwen3-0.6B in BF16,
+Triton selection and full-prefix drafting, C3 and C4 ranged from 0.62× to 1.23×
+the constrained target across six schema regimes: enum-heavy and nested-record
+schemas were faster, the other four slower. See the
+[per-schema results](docs/benchmarks.md#a10g-measurements).
+
 ## Install
 
 Python 3.12 or later. From the checkout:
@@ -118,6 +138,12 @@ visible. No aggregate speedup across unlike schemas is reported.
 
 [Benchmark methodology](docs/benchmarks.md) defines the timing boundaries,
 repetitions, schema regimes and aggregation rules.
+
+[Profiling](docs/profiling.md) provides correctness-gated Nsight Systems and
+Nsight Compute entry points for the installed reduction backends.
+
+[A10G measurements](docs/benchmarks.md#a10g-measurements) include raw reduction
+samples and per-schema decoding comparisons, including regressions.
 
 ## Test
 
