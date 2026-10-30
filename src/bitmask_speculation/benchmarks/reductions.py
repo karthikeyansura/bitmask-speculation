@@ -38,6 +38,45 @@ def measure_wall(operation, synchronize, *, iterations, checked=False, clock=per
     return elapsed, result
 
 
+def reduction_inputs(args, device):
+    """Deterministic, nonempty packed supports shared by timing and profiling."""
+    import torch
+    generator = torch.Generator(device=device).manual_seed(args.seed)
+    scores = torch.randn((args.rows, args.vocab), device=device, generator=generator)
+    valid = torch.rand((args.rows, args.vocab), device=device, generator=generator) < args.density
+    valid[:, 0] = True
+    words = (args.vocab + 31) // 32
+    padded = torch.nn.functional.pad(valid, (0, words * 32 - args.vocab))
+    shifts = torch.arange(32, dtype=torch.int64, device=device)
+    mask = (padded.reshape(args.rows, words, 32).long() << shifts).sum(2).int().contiguous()
+    expected = torch_reduce(scores, mask)
+    return scores, mask, expected
+
+
+def reduction_operation(backend, scores, mask):
+    """Bind backend scratch to the caller's current device and stream."""
+    import torch
+    if backend == 'torch':
+        return lambda: torch_reduce(scores, mask)
+    if backend == 'cuda':
+        from ..kernels._extension import load_extension
+        native = load_extension()
+        def operation():
+            pairs = [native.masked_argmax(scores[i], mask[i]) for i in range(scores.shape[0])]
+            counts = [native.mask_count(mask[i], scores.shape[1]) for i in range(scores.shape[0])]
+            return torch.stack([p[0] for p in pairs]), torch.stack(counts), torch.stack([p[1] for p in pairs])
+        return operation
+    if backend != 'triton':
+        raise ValueError('unknown reduction backend')
+    from ..kernels.triton import batched_masked_reduce
+    from ..kernels.workspace import ReductionWorkspace
+    workspace = ReductionWorkspace(scores.device)
+    def operation():
+        result = batched_masked_reduce(scores, mask, workspace=workspace)
+        return result.token_ids, result.valid_counts, result.status
+    return operation
+
+
 def run_reductions(args):
     import torch
     if args.device == 'cpu' or not torch.cuda.is_available():
@@ -53,37 +92,14 @@ def run_reductions(args):
     metadata.update(gpu_environment(device))
     with RunDirectory(args.output, {'kind': 'reductions', 'configuration': vars(args),
                                     'environment': metadata}) as run:
-        generator = torch.Generator(device=device).manual_seed(args.seed)
-        scores = torch.randn((args.rows, args.vocab), device=device, generator=generator)
-        valid = torch.rand((args.rows, args.vocab), device=device, generator=generator) < args.density
-        valid[:, 0] = True
-        words = (args.vocab + 31) // 32
-        padded = torch.nn.functional.pad(valid, (0, words * 32 - args.vocab))
-        shifts = torch.arange(32, dtype=torch.int64, device=device)
-        mask = (padded.reshape(args.rows, words, 32).long() << shifts).sum(2).int().contiguous()
-        expected = torch_reduce(scores, mask)
+        scores, mask, expected = reduction_inputs(args, device)
         run.write('inputs.json', {'seed': args.seed, 'valid_counts': expected[1].tolist(),
                                  'density_note': 'Bernoulli bits; token zero forced valid'})
         stream = torch.cuda.Stream(device=device)
         stream.wait_stream(torch.cuda.current_stream(device))
         samples = []
         with torch.cuda.device(device), torch.cuda.stream(stream):
-            if args.backend == 'torch':
-                operation = lambda: torch_reduce(scores, mask)
-            elif args.backend == 'cuda':
-                from ..kernels._extension import load_extension
-                native = load_extension()
-                def operation():
-                    pairs = [native.masked_argmax(scores[i], mask[i]) for i in range(args.rows)]
-                    counts = [native.mask_count(mask[i], args.vocab) for i in range(args.rows)]
-                    return torch.stack([p[0] for p in pairs]), torch.stack(counts), torch.stack([p[1] for p in pairs])
-            else:
-                from ..kernels.triton import batched_masked_reduce
-                from ..kernels.workspace import ReductionWorkspace
-                workspace = ReductionWorkspace(device)
-                def operation():
-                    result = batched_masked_reduce(scores, mask, workspace=workspace)
-                    return result.token_ids, result.valid_counts, result.status
+            operation = reduction_operation(args.backend, scores, mask)
             for _ in range(args.warmups):
                 check(operation(), expected)
             stream.synchronize()

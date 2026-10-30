@@ -60,6 +60,7 @@ include = [
     "/csrc",
     "/benchmarks/baseline.json",
     "/benchmarks/regimes.json",
+    "/benchmarks/results",
     "/benchmarks/schemas",
     "/README.md",
     "/LICENSE",

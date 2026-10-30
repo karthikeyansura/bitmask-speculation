@@ -305,3 +305,46 @@ Both sides must finish, match exactly, pass full-schema validation and contain
 finite timings. Failed, incorrect or length-limited trials suppress the ratio.
 No cross-case average is emitted. A partial run retains its raw records and
 failure status; it cannot be resumed into the same directory.
+
+## A10G measurements
+
+[Raw samples and trial data](../benchmarks/results/a10g.json) contain the complete
+schema cases, pinned model revisions, source hashes and per-trial outcomes.
+The model pair is Qwen3-4B / Qwen3-0.6B, using BF16, greedy selection, a chat
+template with thinking disabled, and Triton constrained selection on one A10G.
+The decoder evaluates full prefixes without a KV cache.
+
+The sweep used one warmup and two measured repetitions per configuration.
+All 108 trials completed and matched their respective target-only references.
+All 72 grammar-constrained trials passed schema validation; 18 unconstrained
+outputs failed schema validation. Those failures remain in the data and suppress
+ratios for the affected configurations.
+
+| Schema regime | C3, K=4 / constrained target | C4 / constrained target |
+|---|---:|---:|
+| enum-heavy | 1.234× | 1.211× |
+| enum-small | 0.992× | 0.984× |
+| free-text | 0.617× | 0.766× |
+| mixed-record | 0.812× | 0.832× |
+| nested-record | 1.101× | 1.036× |
+| open-object | 0.807× | 0.752× |
+
+Ratios divide total baseline latency by total configuration latency; values below
+1 indicate slower decoding. These are measurements of this configuration with
+two repetitions, not a general speedup across workloads or serving engines.
+
+Reduction medians use 20 repetitions of 20 operations, six rows, vocabulary size
+151,936, and approximately 1% valid bits. Values are microseconds per whole batch.
+
+| Backend | Graph replay | Async wrapper | Checked wrapper |
+|---|---:|---:|---:|
+| torch | 257.55 | 422.86 | 460.94 |
+| cuda | 1517.59 | 1530.46 | 1569.62 |
+| triton | 6.21 | 116.44 | 161.82 |
+
+The CUDA comparison uses six per-row argmax/count calls plus output stacking;
+Triton processes all rows in a batched two-pass reduction. Wrapper scopes include
+Python dispatch and output allocation; checked wrappers also read batch status.
+Graph replay excludes Python allocation. These scopes do not measure LLM
+throughput. The single-row CUDA implementation is slower than both alternatives
+on this workload.
