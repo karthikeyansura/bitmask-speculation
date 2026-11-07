@@ -78,7 +78,8 @@ def resolve_dtype(dtype: str, device) -> str:
 class TransformersEngine:
     """Load once, then create independent request grammar state on each call.
 
-    Draft rounds reuse a local KV cache; target evaluation remains full-prefix.
+    Each request keeps a target KV cache across rounds and each draft round a
+    local one; ``target_cache=False`` and ``draft_cache=False`` recompute prefixes.
     This single-device greedy engine does not apply chat templates or
     generation-config processors. ``auto`` device, dtype and backend resolve to
     CUDA, bfloat16/float16 and Triton/CUDA when available; ``device``, ``dtype``
@@ -89,12 +90,14 @@ class TransformersEngine:
     def from_pretrained(
         cls, target: ModelSpec, draft: ModelSpec | None = None, *,
         device: str = "auto", dtype: str = "auto", local_files_only: bool = False,
-        backend: str = "auto", draft_cache: bool = True,
+        backend: str = "auto", draft_cache: bool = True, target_cache: bool = True,
     ) -> "TransformersEngine":
         if not isinstance(target, ModelSpec) or (draft is not None and not isinstance(draft, ModelSpec)):
             raise TypeError("target and draft must be ModelSpec instances")
         if type(draft_cache) is not bool:
             raise TypeError("draft_cache must be a boolean")
+        if type(target_cache) is not bool:
+            raise TypeError("target_cache must be a boolean")
         if dtype != "auto" and dtype not in DTYPES:
             raise ValueError("unsupported dtype")
         import torch
@@ -120,7 +123,8 @@ class TransformersEngine:
             model = AutoModelForCausalLM.from_pretrained(
                 spec.source, torch_dtype=getattr(torch, dtype), **options(spec)
             ).to(resolved).eval()
-            return model, TransformersGreedyModel(model, backend=backend, draft_cache=draft_cache)
+            return model, TransformersGreedyModel(
+                model, backend=backend, draft_cache=draft_cache, target_cache=target_cache)
         target_model, target_adapter = load(target)
         draft_adapter = None if draft is None else load(draft)[1]
         if max(tokenizer.get_vocab().values()) >= target_adapter.vocab_size:

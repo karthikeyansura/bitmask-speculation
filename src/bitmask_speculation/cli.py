@@ -47,6 +47,8 @@ def parser():
     generate.add_argument("--local-files-only", action="store_true")
     generate.add_argument("--no-draft-cache", action="store_true",
                           help="recompute full draft prefixes instead of caching within each round")
+    generate.add_argument("--no-target-cache", action="store_true",
+                          help="recompute full target prefixes instead of caching across rounds")
     generate.add_argument("--output-format", choices=("json", "text"), default="json")
     return root
 
@@ -77,6 +79,7 @@ def main(argv=None) -> int:
         engine = TransformersEngine.from_pretrained(
             target, draft, device=args.device, dtype=args.dtype, backend=args.backend,
             local_files_only=args.local_files_only, draft_cache=not args.no_draft_cache,
+            target_cache=not args.no_target_cache,
         )
         result = engine.generate(
             args.prompt, max_new_tokens=args.max_new_tokens, mode=args.mode, schema=schema,

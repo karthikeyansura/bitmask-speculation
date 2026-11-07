@@ -86,7 +86,7 @@ class ConstantModel(torch.nn.Module):
 
 
 def adapter():
-    return TransformersGreedyModel(ConstantModel().eval())
+    return TransformersGreedyModel(ConstantModel().eval(), target_cache=False)
 
 
 @pytest.mark.parametrize("draft", [[4, 4], [1, 4, 4], [1, 2], [1, 2, 3, 4], []])

@@ -27,7 +27,7 @@ class FixedLogitsModel(torch.nn.Module):
 
 def test_last_position_alignment_and_inference_mode():
     model = FixedLogitsModel([0.0, 1.0, 9.0]).eval()
-    result = greedy_decode(TransformersGreedyModel(model), [1, 0], max_new_tokens=2)
+    result = greedy_decode(TransformersGreedyModel(model, target_cache=False), [1, 0], max_new_tokens=2)
     assert result.token_ids == (2, 2)
     assert model.calls == [([[1, 0]], False, True, True), ([[1, 0, 2]], False, True, True)]
 

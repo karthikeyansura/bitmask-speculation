@@ -47,6 +47,8 @@ class VerificationTarget(Protocol):
     choice for empty proposals. No state may advance past a yielded event until
     the consumer requests another. A close method, when present, releases state
     owned by the iterator but does not roll back already yielded choices.
+    An optional target_session() context manager is opened once per request;
+    its object verifies every round and must hold no state after it exits.
     """
 
     @property
@@ -158,48 +160,51 @@ def speculative_decode(
             tuple(schedule),
         )
 
-    while len(generated) < max_new_tokens:
-        if grammar is not None and grammar.is_terminated():
-            return finish("grammar")
-        prefix = prompt + tuple(generated)
-        remaining = max_new_tokens - len(generated)
-        budget = draft_budget
-        if draft_policy is not None:
-            density = grammar.mask_density()
-            budget = draft_policy.budget(density)
-            schedule.append(RoundSchedule(density, budget, min(budget, remaining), len(generated)))
-        proposals = _draft_proposals(
-            draft, prefix, min(budget, remaining), eos, vocab_size, draft_grammar
-        )
+    session = getattr(target, "target_session", None)
+    # Optional model-owned target cache lifetime spans this request only.
+    with nullcontext(target) if session is None else session() as verifier:
+        while len(generated) < max_new_tokens:
+            if grammar is not None and grammar.is_terminated():
+                return finish("grammar")
+            prefix = prompt + tuple(generated)
+            remaining = max_new_tokens - len(generated)
+            budget = draft_budget
+            if draft_policy is not None:
+                density = grammar.mask_density()
+                budget = draft_policy.budget(density)
+                schedule.append(RoundSchedule(density, budget, min(budget, remaining), len(generated)))
+            proposals = _draft_proposals(
+                draft, prefix, min(budget, remaining), eos, vocab_size, draft_grammar
+            )
 
-        proposed += len(proposals)
-        rounds += 1
-        round_accounting = _RoundAccounting(proposals)
-        choices = (
-            target.verify_prefix(prefix, proposals) if grammar is None
-            else target.verify_prefix(prefix, proposals, grammar=grammar)
-        )
-        before = len(generated)
-        try:
-            for event in choices:
-                token = token_id(event.token_id, vocab_size, "target token")
-                compared, matched = round_accounting.record(event)
-                verified += compared
-                accepted += matched
-                if token in eos:
-                    return finish("eos", token)
-                generated.append(token)
-                if grammar is not None and grammar.is_terminated():
-                    return finish("grammar")
-                if len(generated) == max_new_tokens:
-                    return finish("length")
-        finally:
-            close = getattr(choices, "close", None)
-            if close is not None:
-                close()
-        if len(generated) == before:
-            raise RuntimeError("target verification made no progress")
-        if not round_accounting.finished:
-            raise RuntimeError("verification ended before correction or bonus")
+            proposed += len(proposals)
+            rounds += 1
+            round_accounting = _RoundAccounting(proposals)
+            choices = (
+                verifier.verify_prefix(prefix, proposals) if grammar is None
+                else verifier.verify_prefix(prefix, proposals, grammar=grammar)
+            )
+            before = len(generated)
+            try:
+                for event in choices:
+                    token = token_id(event.token_id, vocab_size, "target token")
+                    compared, matched = round_accounting.record(event)
+                    verified += compared
+                    accepted += matched
+                    if token in eos:
+                        return finish("eos", token)
+                    generated.append(token)
+                    if grammar is not None and grammar.is_terminated():
+                        return finish("grammar")
+                    if len(generated) == max_new_tokens:
+                        return finish("length")
+            finally:
+                close = getattr(choices, "close", None)
+                if close is not None:
+                    close()
+            if len(generated) == before:
+                raise RuntimeError("target verification made no progress")
+            if not round_accounting.finished:
+                raise RuntimeError("verification ended before correction or bonus")
 
     return finish("length")

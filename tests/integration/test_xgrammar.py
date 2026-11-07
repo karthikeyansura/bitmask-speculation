@@ -76,7 +76,7 @@ def test_json_schema_correction_matches_constrained_greedy():
     vocab = ['"', "red", "blue", "<eos>", "z"]
     info = xgr.TokenizerInfo(vocab, stop_token_ids=[3])
     compiled = xgr.GrammarCompiler(info, max_threads=1).compile_json_schema({"enum": ["red", "blue"]})
-    target = TransformersGreedyModel(JsonModel().eval())
+    target = TransformersGreedyModel(JsonModel().eval(), target_cache=False)
     expected = greedy_decode(target, [4], max_new_tokens=8, eos_token_ids=[3], grammar=XGrammarState(compiled))
     assert expected.token_ids == (0, 2, 0) and expected.stop_reason == "eos"
     assert json.loads(''.join(vocab[t] for t in expected.token_ids)) == "blue"

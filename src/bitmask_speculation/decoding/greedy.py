@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Literal, Protocol, cast
 
@@ -58,7 +59,8 @@ def greedy_decode(
 
     The caller tokenizes the prompt, including BOS or chat-template tokens when
     needed. Prompt EOS tokens are ordinary context, not a stop instruction.
-    A constrained model advances grammar state once per choice. Sampling is
+    A constrained model advances grammar state once per choice. An optional
+    model target_session() is opened once for the request. Sampling is
     outside this reference's scope.
     """
     vocab_size = vocabulary_size(model.vocab_size)
@@ -69,19 +71,22 @@ def greedy_decode(
     )
     generated: list[int] = []
 
-    for _ in range(max_new_tokens):
-        if grammar is not None and grammar.is_terminated():
-            return GreedyResult(tuple(generated), "grammar")
-        prefix = prompt + tuple(generated)
-        choice = (
-            cast(GreedyModel, model).next_token(prefix) if grammar is None
-            else cast(ConstrainedGreedyModel, model).next_token(prefix, grammar=grammar)
-        )
-        token = token_id(choice, vocab_size, "model token")
-        if token in eos:
-            return GreedyResult(tuple(generated), "eos", token)
-        generated.append(token)
-        if grammar is not None and grammar.is_terminated():
-            return GreedyResult(tuple(generated), "grammar")
+    session = getattr(model, "target_session", None)
+    # Optional model-owned cache lifetime spans this request only.
+    with nullcontext(model) if session is None else session() as predictor:
+        for _ in range(max_new_tokens):
+            if grammar is not None and grammar.is_terminated():
+                return GreedyResult(tuple(generated), "grammar")
+            prefix = prompt + tuple(generated)
+            choice = (
+                cast(GreedyModel, predictor).next_token(prefix) if grammar is None
+                else cast(ConstrainedGreedyModel, predictor).next_token(prefix, grammar=grammar)
+            )
+            token = token_id(choice, vocab_size, "model token")
+            if token in eos:
+                return GreedyResult(tuple(generated), "eos", token)
+            generated.append(token)
+            if grammar is not None and grammar.is_terminated():
+                return GreedyResult(tuple(generated), "grammar")
 
     return GreedyResult(tuple(generated), "length")
