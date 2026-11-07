@@ -51,7 +51,7 @@ def test_every_rejection_position_restores_state_and_matches_reference(
 
     paths = {0: [1, 0, 0, 1], 1: [0, 1, 0, 1], 2: [0, 0, 1, 1], 3: [0, 0, 0, 1], None: [0, 0, 0, 0]}
     draft = TransformersGreedyModel(PositionModel(paths[mismatch] + [2] * 10).eval(), draft_cache=False)
-    target = TransformersGreedyModel(PositionModel([0] * 4 + [2] * 10).eval(), target_cache=False)
+    target = TransformersGreedyModel(PositionModel([0] * 4 + [2] * 10).eval())
     reference_state = fresh()
     reference = greedy_decode(target, [3], max_new_tokens=limit, eos_token_ids=[2], grammar=reference_state)
     committed = fresh()

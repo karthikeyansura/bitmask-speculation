@@ -27,7 +27,7 @@ class TransformersGreedyModel:
 
     def __init__(
         self, model: PreTrainedModel, *, backend: str = "reference",
-        draft_cache: bool = True, target_cache: bool = True,
+        draft_cache: bool = True, target_cache: bool = False,
     ) -> None:
         import torch
 
@@ -100,9 +100,9 @@ class TransformersGreedyModel:
 
     @contextmanager
     def target_session(self):
-        """Own one request's target cache; discard it on completion or failure.
+        """Own one request's target cache when ``target_cache=True``.
 
-        The cache covers full-attention layers only and is validated before any
+        The cache is discarded on completion or failure. It covers full-attention layers only and is validated before any
         forward pass. Other layer types fail; use ``target_cache=False``.
         """
         if not self.target_cache:

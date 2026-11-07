@@ -58,10 +58,10 @@ The facade decodes content without stripping special tokens or normalizing space
 No throughput metric is inferred from these calls. Model loading, grammar
 compilation and decoding timing belong to the benchmark harness.
 
-The engine keeps one target KV cache per request and a fresh draft KV cache per
-proposal round. Set `target_cache=False` or `draft_cache=False` when loading the
-engine, or pass `--no-target-cache` or `--no-draft-cache` to either CLI, for
-full-prefix evaluation. `device`, `dtype` and
+The engine uses full-prefix target evaluation and a fresh draft KV cache per
+proposal round. Set `draft_cache=False` when loading the engine, or pass
+`--no-draft-cache` to either CLI, for uncached drafting. `target_cache=True` or
+`--target-cache` keeps one target KV cache per request. `device`, `dtype` and
 `backend` default to `"auto"`: the current CUDA device when available, bfloat16
 on compute capability 8.0 or newer and float16 below it, and Triton, else the CUDA
 extension, else reference selection. Without CUDA, `auto` selects CPU, float32 and
@@ -186,8 +186,8 @@ For prefix length `L`, the adapter consumes logits shaped `[1, L, vocab_size]`
 and selects from position `L - 1`. It runs in inference mode, requires evaluation
 mode, and recomputes the full prefix for standalone `next_token` and
 `verify_prefix` calls. Cached evaluation happens only inside sessions.
-`greedy_decode` and `speculative_decode` open `target_session()` once per request.
-The speculative loop also opens `draft_session()` for each round: it prefills once,
+`greedy_decode` and `speculative_decode` open `target_session()` once per request;
+it is cached only with `target_cache=True`. The speculative loop also opens `draft_session()` for each round: it prefills once,
 passes only each new token with its cached keys/values, and releases the cache
 before verification. Attention masks cover cached and current tokens; position IDs
 follow the unpadded prefix. Each session owns its cache exclusively and drops it
@@ -204,8 +204,8 @@ generation-config processors are applied. Comparisons with `model.generate`
 require those settings to be disabled and matching EOS/output-limit semantics.
 
 
-With `target_cache=False`, full-prefix recomputation is a correctness reference,
-not a throughput baseline. Compare speculative and target-only decoding under the
+Full-prefix target recomputation is a correctness reference, not a throughput
+baseline. Compare speculative and target-only decoding under the
 same cache modes, grammar and generation settings. Pass `grammar=state` for
 [constrained greedy decoding](usage.md#grammar-selection). The [speculative request loop](usage.md#speculative-decoding) uses the same result and
 termination contract.
@@ -292,6 +292,7 @@ termination automatically; the caller still owns EOS and output limits.
 ### Cached verification
 
 ```python
+adapter = TransformersGreedyModel(model, target_cache=True)
 with adapter.target_session() as target:
     stream = target.verify_prefix(committed_prefix, proposals)
 ```
@@ -309,11 +310,16 @@ A prefix that shares nothing with the cache starts a fresh cache. Session
 The cache is a `DynamicCache` built from the model config before the first forward.
 Rollback supports full-attention layers only. Linear-attention layers such as
 Qwen3.5 Gated DeltaNet, and sliding-window layers, cannot be cropped exactly. They
-fail with `ValueError` when the session opens; use `target_cache=False` for them.
+fail with `ValueError` when the session opens; leave `target_cache` off for them.
 Draft caching still works for these models, since draft caches are append-only.
 A forward that fails or returns a different cache drops the session cache;
 the next call recomputes from the full prefix. Closing the session releases it,
 and a closed session rejects further calls.
+
+Full-prefix, one-token and chunked cached forwards use different kernel shapes.
+In bfloat16 or float16 a logit can differ by one rounding step, so an exact tie
+may select a different token. This holds between cached greedy and cached
+speculative decoding too; float32 CPU fixtures match exactly.
 
 ### Validation
 
@@ -469,8 +475,8 @@ Each round follows this sequence:
 A rejected tail cannot contaminate the next round. Full acceptance also discards
 the fork; the target advances the parent once for every consumed choice. No
 commit or merge of the draft branch is needed. The round-local draft cache is
-also discarded, on normal exit, EOS, grammar termination or an exception. The
-request-scoped target cache is cropped at the next round boundary, not merged.
+also discarded, on normal exit, EOS, grammar termination or an exception. An
+enabled target cache is cropped at the next round boundary, not merged.
 
 ### EOS, limits and errors
 
@@ -543,13 +549,13 @@ compares their counters. See [proposal accounting](design.md#proposal-accounting
    corrected committed prefix. After full acceptance, a bonus is allowed only
    if the request still has room and has not terminated.
 
-The Transformers target cache spans every round of one request. Each
-verification forward feeds the uncached committed tokens, normally just the
+With `target_cache=True`, the Transformers target cache spans every round of one
+request. Each verification forward feeds the uncached committed tokens, normally just the
 previous correction or bonus, followed by the proposals. The next round crops
 cache rows for rejected proposals before feeding the new correction or bonus.
 Drafting prefills the committed prefix once per round, then feeds one token per
-prediction; that cache is released before verification. Adapters without
-`target_session()` or `draft_session()` retain full-prefix calls.
+prediction; that cache is released before verification. Otherwise, and for
+adapters without `target_session()` or `draft_session()`, calls are full-prefix.
 
 ### Termination and validation
 
@@ -580,7 +586,7 @@ rolled back automatically. State belongs exclusively to one active request.
 
 The reference path handles one request at a time, with a fixed or density-selected draft budget,
 optional grammar constraints on the target or both models, and greedy selection.
-It has request-level proposal counters, target KV reuse across rounds and draft
-KV reuse within each round. Sampling and request batching are not implemented. C4 selects the budget using a
+It has request-level proposal counters, draft KV reuse within each round and
+optional target KV reuse across rounds. Sampling and request batching are not implemented. C4 selects the budget using a
 [density-threshold policy](design.md#draft-scheduling). The full prompt plus proposal sequence must
 fit the model's context capacity; no implicit truncation is applied.

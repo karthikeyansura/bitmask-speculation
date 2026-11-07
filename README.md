@@ -97,14 +97,15 @@ copied to the model device. Checked selection reads status before advancing stat
 C4 density queries still use the CPU count reference. Returned kernel outputs own
 their storage; workspace reuse applies only to intermediate reductions.
 
-Each request keeps one target KV cache across rounds. Verification feeds only
-uncached tokens plus the proposals; the next round crops rejected positions before
-feeding the correction or bonus. Target caching requires full-attention layers;
-hybrid recurrent and sliding-window models fail before any forward pass. Drafting
-caches the committed prefix once per round and releases it before verification.
-Caches never outlive their request or round. `--no-target-cache` and
-`--no-draft-cache` restore full-prefix evaluation with `use_cache=False`.
-Generation is single-request, single-device and greedy.
+Drafting caches the committed prefix once per round and releases it before
+verification; `--no-draft-cache` disables it. Target evaluation is full-prefix
+with `use_cache=False` unless `--target-cache` is set. That option keeps one target
+KV cache per request: verification feeds only uncached tokens plus the proposals,
+and the next round crops rejected positions before feeding the correction or bonus.
+It requires full-attention layers; hybrid recurrent and sliding-window models fail
+before any forward pass. In reduced precision, cached and full-prefix logits can
+differ by one rounding step, so exact ties may resolve differently. Caches never
+outlive their request or round. Generation is single-request, single-device and greedy.
 Batched reduction primitives do not batch the request loop. The standalone
 sampler is not a stochastic speculative decoder. See
 [kernel contracts](docs/kernels.md) for shapes, limits and stream rules.
@@ -130,8 +131,7 @@ and checked wrapper latency. Decode trials include target forward passes,
 drafting, verification, masks and scheduling; setup and output validation are
 excluded. Reports record the target and draft cache modes. The published A10G
 trials used uncached targets and drafts; reproduce that mode with
-`--no-target-cache --no-draft-cache`. They do not measure cached decoding or a
-serving engine. `--chat-template` renders a user turn
+`--no-draft-cache`. They do not measure cached decoding or a serving engine. `--chat-template` renders a user turn
 with `enable_thinking=False`.
 
 Each run uses a new output directory and retains source/model identities, hardware,

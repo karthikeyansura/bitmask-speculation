@@ -30,7 +30,7 @@ def model(family, seed=19, **options):
 
 def pair(family, seed=19):
     raw = model(family, seed)
-    return TransformersGreedyModel(raw), TransformersGreedyModel(raw, target_cache=False)
+    return TransformersGreedyModel(raw, target_cache=True), TransformersGreedyModel(raw)
 
 
 def record_calls(raw):
@@ -229,12 +229,12 @@ def test_missing_cache_update_fails_and_uncached_option_still_works():
         return SimpleNamespace(logits=output.logits, past_key_values=None)
     hook = raw.register_forward_hook(strip_cache)
     try:
-        adapter = TransformersGreedyModel(raw)
+        adapter = TransformersGreedyModel(raw, target_cache=True)
         with pytest.raises(RuntimeError, match='did not extend'):
             with adapter.target_session() as session:
                 session.next_token((0,))
         assert session._cache is None
-        plain = TransformersGreedyModel(raw, target_cache=False)
+        plain = TransformersGreedyModel(raw)
         assert greedy_decode(plain, (0,), max_new_tokens=3).token_ids
     finally:
         hook.remove()
@@ -271,16 +271,20 @@ def test_rejects_non_croppable_layers_before_any_forward():
         hook = raw.register_forward_pre_hook(lambda *args: calls.append(True))
         try:
             with pytest.raises(ValueError, match=f'full-attention layers only, found {layer}.*target_cache=False'):
-                speculative_decode(TransformersGreedyModel(raw), TransformersGreedyModel(raw), (0, 2),
+                speculative_decode(TransformersGreedyModel(raw, target_cache=True), TransformersGreedyModel(raw), (0, 2),
                                    max_new_tokens=4, draft_budget=2)
             assert not calls
         finally:
             hook.remove()
-        plain = TransformersGreedyModel(raw, target_cache=False)
+        plain = TransformersGreedyModel(raw)
         result = speculative_decode(plain, TransformersGreedyModel(raw), (0, 2), max_new_tokens=4, draft_budget=2)
         assert result.generation == greedy_decode(plain, (0, 2), max_new_tokens=4)
 
 
-def test_target_cache_option_is_boolean():
+def test_target_cache_is_opt_in_and_boolean():
+    adapter = TransformersGreedyModel(model('gpt2'))
+    assert adapter.target_cache is False
+    with adapter.target_session() as session:
+        assert session is adapter
     with pytest.raises(TypeError, match='target_cache'):
         TransformersGreedyModel(model('gpt2'), target_cache=1)
