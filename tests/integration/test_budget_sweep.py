@@ -61,7 +61,7 @@ def setup():
                   decode=lambda ids: ''.join(vocab[t] for t in ids), metadata=META,
                   synchronize=sync, clock=clock, fixed_budgets=[1, 4], repetitions=3,
                   policy=DensityPolicy(.25, .75, 1, 4))
-    target = TransformersGreedyModel(PositionModel(1).eval())
+    target = TransformersGreedyModel(PositionModel(1).eval(), target_cache=False)
     draft = TransformersGreedyModel(PositionModel(2).eval(), draft_cache=False)
     return target, draft, case, kwargs, states, events
 

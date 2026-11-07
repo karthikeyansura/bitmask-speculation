@@ -145,8 +145,12 @@ def test_installed_cli_from_another_directory(local_pair,tmp_path):
     assert failed.returncode==2 and not failed.stdout
 
 
-@pytest.mark.parametrize('uncached', [False, True])
-def test_installed_decoding_benchmark_persists_trials(local_pair, tmp_path, uncached):
+@pytest.mark.parametrize('flags,scope,draft_cache,target_cache', [
+    ((), 'request_cached_target_loop', 'per_round', 'per_request'),
+    (('--no-target-cache',), 'round_cached_draft_loop', 'per_round', 'disabled'),
+    (('--no-draft-cache', '--no-target-cache'), 'full_prefix_loop', 'disabled', 'disabled'),
+])
+def test_installed_decoding_benchmark_persists_trials(local_pair, tmp_path, flags, scope, draft_cache, target_cache):
     pytest.importorskip('xgrammar')
     pytest.importorskip('jsonschema')
     import subprocess, sys
@@ -159,8 +163,7 @@ def test_installed_decoding_benchmark_persists_trials(local_pair, tmp_path, unca
     command = [sys.executable, '-I', '-m', 'bitmask_speculation.benchmarks', 'decode',
         '--target',str(local_pair[0]), '--draft',str(local_pair[1]), '--local-files-only',
         '--workloads',str(manifest), '--budgets','1', '--repetitions','2', '--output',str(output)]
-    if uncached:
-        command.append('--no-draft-cache')
+    command += flags
     result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stderr
     records = [TrialRecord.from_json(line) for line in (output/'trials.jsonl').read_text().splitlines()]
@@ -169,9 +172,8 @@ def test_installed_decoding_benchmark_persists_trials(local_pair, tmp_path, unca
     assert json.loads((output/'status.json').read_text())['status'] == 'complete'
     assert json.loads(records[0].metadata_json)['target_revision'].startswith('sha256:')
     metadata = json.loads(records[0].metadata_json)
-    assert metadata['draft_cache'] == ('disabled' if uncached else 'per_round')
-    assert metadata['timing_scope'] == ('full_prefix_loop' if uncached else 'round_cached_draft_loop')
-    assert metadata['target_cache'] == 'disabled'
+    assert (metadata['timing_scope'], metadata['draft_cache'], metadata['target_cache']) == (
+        scope, draft_cache, target_cache)
     assert 'model_load_seconds' in json.loads((output/'setup.json').read_text())
     repeat = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=30)
     assert repeat.returncode == 2 and 'File exists' in repeat.stderr
@@ -196,7 +198,7 @@ def test_benchmark_report_recomputes_and_rejects_partial_runs(local_pair, tmp_pa
     run_decoding(SimpleNamespace(command='decode',workloads=str(tmp_path/'cases.json'),
         target=str(local_pair[0]),draft=str(local_pair[1]),target_revision=None,draft_revision=None,
         device='cpu',dtype='float32',backend='reference',local_files_only=True,
-        chat_template=False,no_draft_cache=False,budgets=[1],warmups=1,repetitions=2,output=str(output)))
+        chat_template=False,no_draft_cache=False,no_target_cache=False,budgets=[1],warmups=1,repetitions=2,output=str(output)))
     report=report_directory(output)
     assert len(report['cases'])==1 and len(report['cases'][0]['configurations'])==6
     assert len((output/'references.jsonl').read_text().splitlines()) == 1

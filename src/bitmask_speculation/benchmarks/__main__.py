@@ -30,6 +30,8 @@ def parser():
     decode.add_argument('--local-files-only', action='store_true')
     decode.add_argument('--no-draft-cache', action='store_true',
                         help='recompute full draft prefixes for uncached comparisons')
+    decode.add_argument('--no-target-cache', action='store_true',
+                        help='recompute full target prefixes for uncached comparisons')
     decode.add_argument('--chat-template', action='store_true')
     decode.add_argument('--budgets', type=int, nargs='+', default=[1, 2, 4, 8])
     decode.add_argument('--warmups', type=int, default=1)

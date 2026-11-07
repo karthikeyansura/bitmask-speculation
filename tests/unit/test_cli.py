@@ -93,3 +93,10 @@ def test_draft_cache_option_reaches_loader(tmp_path, fake_loader, capsys, uncach
     options = ['--no-draft-cache'] if uncached else []
     assert cli.main(base(tmp_path) + options) == 0
     assert fake_loader[0][2]['draft_cache'] is not uncached
+
+
+@pytest.mark.parametrize('uncached', [False, True])
+def test_target_cache_option_reaches_loader(tmp_path, fake_loader, capsys, uncached):
+    options = ['--no-target-cache'] if uncached else []
+    assert cli.main(base(tmp_path) + options) == 0
+    assert fake_loader[0][2]['target_cache'] is not uncached

@@ -27,7 +27,7 @@ def test_constrained_engine_matches_reference(backend,mode):
                 grammar_factory=lambda:XGrammarState(compiled))
     if mode=='c4':kwargs['draft_policy']=DensityPolicy()
     def run(name):
-        engine=DecodingEngine(TransformersGreedyModel(target,backend=name),
+        engine=DecodingEngine(TransformersGreedyModel(target,backend=name,target_cache=False),
                               TransformersGreedyModel(draft,backend=name,draft_cache=False))
         return engine.generate((3,),**kwargs)
     actual,expected=run(backend),run('reference')

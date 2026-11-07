@@ -128,7 +128,7 @@ mask work. Exclude model loading, tokenization, schema compilation, independent
 reference generation, detokenization, schema validation and serialization.
 Warm up beforehand, synchronize device work at both timing boundaries and state
 that the scope is `full_prefix_loop`. Prefill and decode are not separated by
-this implementation. Cached implementations need a distinct timing scope.
+this implementation. Cached runs use the scopes in [execution and timing](#execution-and-timing).
 
 Store every repetition, rotate variant order and retain environment details.
 
@@ -223,10 +223,13 @@ The interval includes target forward passes, drafting, mask work, density
 queries and policy decisions. It excludes model loading, prompt tokenization,
 grammar compilation, initial matcher construction, reference generation,
 detokenization, schema validation and serialization. This implementation does
-not separate prefill from decode. Draft KV reuse is confined to each round;
-`--no-draft-cache` disables it. New records distinguish `round_cached_draft_loop`
-from `full_prefix_loop` and record `draft_cache` and `target_cache` explicitly.
-Do not combine measurements with different cache modes.
+not separate prefill from decode. Target KV reuse spans each request and draft
+KV reuse is confined to each round; `--no-target-cache` and `--no-draft-cache`
+disable them. Timing scopes are `request_cached_target_loop` with a target cache,
+otherwise `round_cached_draft_loop` or `full_prefix_loop`. Records also store
+`target_cache` (`per_request` or `disabled`) and `draft_cache` (`per_round` or
+`disabled`). Target-only and speculative configurations in one run share these
+modes. Do not combine measurements with different cache modes.
 
 Measured failures become explicit error records and the runner continues once
 pending device work is drained. They suppress aggregate rates for the affected
@@ -316,7 +319,8 @@ schema cases, pinned model revisions, source hashes and per-trial outcomes.
 The model pair is Qwen3-4B / Qwen3-0.6B, using BF16, greedy selection, a chat
 template with thinking disabled, and Triton constrained selection on one A10G.
 These recorded trials evaluated full prefixes without a KV cache. Reproduce that
-execution mode with `--no-draft-cache`; the results do not measure cached drafting.
+execution mode with `--no-target-cache --no-draft-cache`; the results do not
+measure cached decoding.
 
 The sweep used one warmup and two measured repetitions per configuration.
 All 108 trials completed and matched their respective target-only references.

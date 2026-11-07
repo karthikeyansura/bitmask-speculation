@@ -1,4 +1,4 @@
-"""Full-prefix target evaluation and round-local cached draft evaluation."""
+"""Greedy evaluation with request-scoped target and round-scoped draft caches."""
 
 from __future__ import annotations
 
@@ -21,14 +21,22 @@ class TransformersGreedyModel:
     Load the model, move it to its intended device, and call ``eval()`` before
     constructing the adapter. No tokenizer, weights, or device is chosen here.
     Generation-config processors, sampling and model offloading are not applied.
+    Standalone ``next_token`` and ``verify_prefix`` calls recompute the full
+    prefix; ``target_session()`` and ``draft_session()`` own the caches.
     """
 
-    def __init__(self, model: PreTrainedModel, *, backend: str = "reference", draft_cache: bool = True) -> None:
+    def __init__(
+        self, model: PreTrainedModel, *, backend: str = "reference",
+        draft_cache: bool = True, target_cache: bool = True,
+    ) -> None:
         import torch
 
         if type(draft_cache) is not bool:
             raise TypeError("draft_cache must be a boolean")
+        if type(target_cache) is not bool:
+            raise TypeError("target_cache must be a boolean")
         self.draft_cache = draft_cache
+        self.target_cache = target_cache
         if model.training:
             raise ValueError("call model.eval() before constructing the adapter")
         if getattr(model.config, "is_encoder_decoder", False):
@@ -78,8 +86,8 @@ class TransformersGreedyModel:
     def draft_session(self):
         """Own one draft round's cache; discard it on completion or failure.
 
-        Target calls and standalone next_token calls remain uncached. Sessions
-        never share model cache state, including when the adapter is reused.
+        Standalone next_token calls remain uncached. Sessions never share model
+        cache state, including when the adapter is reused.
         """
         if not self.draft_cache:
             yield self
@@ -89,6 +97,32 @@ class TransformersGreedyModel:
             yield session
         finally:
             session.close()
+
+    @contextmanager
+    def target_session(self):
+        """Own one request's target cache; discard it on completion or failure.
+
+        The cache covers full-attention layers only and is validated before any
+        forward pass. Other layer types fail; use ``target_cache=False``.
+        """
+        if not self.target_cache:
+            yield self
+            return
+        session = _TargetSession(self)
+        try:
+            yield session
+        finally:
+            session.close()
+
+    def _new_target_cache(self):
+        from transformers import DynamicCache
+
+        try:
+            cache = DynamicCache(config=self._model.config)
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError("target cache requires a Transformers model config; use target_cache=False") from exc
+        _check_croppable(cache)
+        return cache
 
     def _check_grammar(self, grammar: GrammarState | None) -> None:
         if grammar is not None and vocabulary_size(grammar.vocab_size) != self.vocab_size:
@@ -133,13 +167,19 @@ class TransformersGreedyModel:
         iterator advances only selected tokens and stops at grammar termination.
         Full-prefix logits remain owned by this iterator until it is released.
         """
+        prefix, draft = self._verification_inputs(prefix, proposals, grammar)
+        if grammar is not None and grammar.is_terminated():
+            return iter(())
+        return self._choices(draft, self._forward_logits(prefix + draft), len(prefix) - 1, grammar)
+
+    def _verification_inputs(self, prefix, proposals, grammar):
         prefix = self._prefix(prefix)
         draft = tuple(token_id(t, self.vocab_size, "proposal token") for t in proposals)
         self._check_grammar(grammar)
-        if grammar is not None and grammar.is_terminated():
-            return iter(())
-        logits = self._forward_logits(prefix + draft)
-        start = len(prefix) - 1
+        return prefix, draft
+
+    def _choices(self, draft, logits, start, grammar) -> Iterator[VerifiedToken]:
+        """Select lazily; logits row ``start + i`` predicts proposal ``i``."""
         choices = verify_prefix(
             draft,
             lambda i: self._select_token(logits[start + i], grammar),
@@ -159,6 +199,103 @@ class TransformersGreedyModel:
                 choices.close()
 
         return constrained_choices()
+
+
+def _check_croppable(cache) -> None:
+    from transformers.cache_utils import DynamicLayer
+
+    unsupported = sorted({type(layer).__name__ for layer in cache.layers if type(layer) is not DynamicLayer})
+    if unsupported:
+        raise ValueError(
+            f"target cache rollback supports full-attention layers only, found {', '.join(unsupported)}; "
+            "use target_cache=False"
+        )
+
+
+class _TargetSession:
+    """Target cache owned by a single request.
+
+    The cache holds the keys and values of ``_tokens``. Each call reuses the
+    longest cached prefix of its input, crops the rejected suffix, and feeds the
+    remaining tokens, at least one, with absolute positions.
+    """
+
+    def __init__(self, adapter: TransformersGreedyModel):
+        self.adapter = adapter
+        self._cache = adapter._new_target_cache()
+        self._tokens: tuple[int, ...] = ()
+        self._closed = False
+
+    @property
+    def vocab_size(self) -> int:
+        return self.adapter.vocab_size
+
+    def close(self):
+        self._cache = None
+        self._tokens = ()
+        self._closed = True
+
+    def _check_open(self):
+        if self._closed:
+            raise RuntimeError("target session is closed")
+
+    def _logits(self, sequence: tuple[int, ...]):
+        """Return logits for ``sequence[start:]`` and ``start``."""
+        adapter = self.adapter
+        if adapter._model.training:
+            raise ValueError("model must remain in evaluation mode")
+        cached = self._tokens
+        start, limit = 0, min(len(cached), len(sequence) - 1)
+        while start < limit and cached[start] == sequence[start]:
+            start += 1
+        torch = adapter._torch
+        try:
+            with torch.inference_mode():
+                if start == 0:
+                    if self._cache is None or cached:
+                        self._cache = adapter._new_target_cache()
+                elif start < len(cached):
+                    self._cache.crop(start - len(cached))
+                self._tokens = sequence[:start]
+                output = adapter._model(
+                    input_ids=torch.tensor([sequence[start:]], dtype=torch.long, device=adapter._device),
+                    attention_mask=torch.ones((1, len(sequence)), dtype=torch.long, device=adapter._device),
+                    position_ids=torch.arange(start, len(sequence), device=adapter._device).unsqueeze(0),
+                    past_key_values=self._cache, use_cache=True, return_dict=True,
+                )
+                logits = adapter._logits(output, len(sequence) - start)
+                if (getattr(output, "past_key_values", None) is not self._cache
+                        or self._cache.get_seq_length() != len(sequence)):
+                    raise RuntimeError("target model did not extend the supplied cache; use target_cache=False")
+                _check_croppable(self._cache)
+        except BaseException:
+            self._cache, self._tokens = None, ()
+            raise
+        self._tokens = sequence
+        return logits, start
+
+    def next_token(self, prefix: tuple[int, ...], *, grammar: GrammarState | None = None) -> int:
+        self._check_open()
+        adapter = self.adapter
+        prefix = adapter._prefix(prefix)
+        adapter._check_grammar(grammar)
+        if grammar is not None and grammar.is_terminated():
+            raise GrammarTerminatedError("grammar has terminated")
+        logits, _ = self._logits(prefix)
+        return adapter._select_token(logits[-1], grammar)
+
+    def verify_prefix(
+        self, prefix: Sequence[int], proposals: Sequence[int], *,
+        grammar: GrammarState | None = None,
+    ) -> Iterator[VerifiedToken]:
+        """One cached forward over uncached prefix tokens plus proposals."""
+        self._check_open()
+        adapter = self.adapter
+        prefix, draft = adapter._verification_inputs(prefix, proposals, grammar)
+        if grammar is not None and grammar.is_terminated():
+            return iter(())
+        logits, start = self._logits(prefix + draft)
+        return adapter._choices(draft, logits, len(prefix) - 1 - start, grammar)
 
 
 class _DraftSession:

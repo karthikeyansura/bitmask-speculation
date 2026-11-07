@@ -34,6 +34,14 @@ still be pending consumption. Recomputing the prefix is a valid reference path.
 Drafting uses temporary state. Rejection must discard speculative grammar and
 cache state beyond the accepted prefix before the next round begins.
 
+The Transformers target cache spans one request. After verification it covers the
+round's prefix and proposals. The next round crops it to the longest prefix shared
+with the new committed prefix: `L + j` after a correction at proposal `j`, or every
+proposal after full acceptance. The correction or bonus is consumed first in that
+round's forward. Rollback requires full-attention layers. Recurrent and
+sliding-window layers cannot be cropped exactly, so they are rejected before any
+forward pass; `target_cache=False` recomputes the full prefix instead.
+
 ### Greedy verification
 
 For a committed prefix of length `L`, let the draft propose `d[0:m]`, where `m`
@@ -247,7 +255,9 @@ then apply `13`. Both approaches must reach the state before the closing brace.
 A cached model path must likewise discard cache entries for the rejected token
 and its suffix. The correction is not already represented by the target forward
 pass over the draft. Consume it before using the cache to predict what follows,
-or recompute from the committed prefix. The draft cache must also be realigned.
+or recompute from the committed prefix. Here the target cache keeps
+`L + 2` positions, ending at `[10, 12]`, and the next round feeds `13` before its
+proposals. The draft cache must also be realigned; this adapter discards it.
 
 ### Full acceptance and the bonus token
 
@@ -343,8 +353,8 @@ result.accounting.proposal_yield
 These are logical decoding counts, not kernel launches or total model work.
 A target forward may compute rows the verifier never consumes. A draft EOS
 prediction costs a forward even though it contributes no proposal. The current
-Transformers adapter uses one forward per verification round; that is an adapter
-property, not the definition of the round counter.
+Transformers adapter uses one forward per verification round, cached or not; that
+is an adapter property, not the definition of the round counter.
 
 Counts accumulate across the entire request. They are nonnegative integers and
 must satisfy `accepted <= verified <= proposed`. `emitted` equals the number of
