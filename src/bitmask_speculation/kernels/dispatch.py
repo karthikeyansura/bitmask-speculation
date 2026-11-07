@@ -1,4 +1,4 @@
-"""Explicit constrained-selection dispatch; reference remains the default."""
+"""Constrained-selection dispatch with explicit and automatic backend choice."""
 
 BACKENDS = ('reference', 'cuda', 'triton')
 
@@ -14,6 +14,42 @@ def validate_backend(backend, device):
     if backend == 'triton':
         from .triton import require_device
         require_device(device)
+
+
+def triton_available(device) -> bool:
+    """Whether the Triton backend can run on this device."""
+    from .triton import require_device
+    try:
+        require_device(device)
+    except (ValueError, RuntimeError):
+        return False
+    return True
+
+
+def cuda_extension_available() -> bool:
+    """Whether the CUDA extension build prerequisites are present.
+
+    The extension still compiles on first use; a build failure is an error.
+    """
+    import torch
+    if torch.version.cuda is None or torch.version.hip is not None or not torch.cuda.is_available():
+        return False
+    from torch.utils import cpp_extension
+    return cpp_extension.CUDA_HOME is not None and cpp_extension.is_ninja_available()
+
+
+def resolve_backend(backend, device) -> str:
+    """Resolve ``auto`` to Triton, else CUDA, else reference; validate the result."""
+    import torch
+    if backend == 'auto':
+        backend = 'reference'
+        if device.type == 'cuda' and torch.version.hip is None and torch.cuda.is_available():
+            if triton_available(device):
+                backend = 'triton'
+            elif cuda_extension_available():
+                backend = 'cuda'
+    validate_backend(backend, device)
+    return backend
 
 
 def packed_mask(grammar):

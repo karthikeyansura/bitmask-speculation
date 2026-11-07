@@ -11,6 +11,7 @@ from bitmask_speculation.engine import GenerationResult
 def fake_loader(monkeypatch):
     calls=[]
     class Engine:
+        device, dtype, backend = 'cuda:0', 'bfloat16', 'triton'
         def generate(self, prompt, **kwargs):
             calls.append(('generate',prompt,kwargs))
             return GenerationResult(GreedyResult((1,),'eos',2),text='a')
@@ -29,6 +30,19 @@ def test_json_output_and_loader_options(tmp_path,fake_loader,capsys):
     assert data['token_ids']==[1] and data['stop_reason']=='eos' and data['text']=='a'
     assert data['accounting'] is None and data['schedule']==[] and not output.err
     assert fake_loader[0][2]['local_files_only'] is True
+    assert (data['device'], data['dtype'], data['backend']) == ('cuda:0', 'bfloat16', 'triton')
+
+
+def test_runtime_defaults_are_auto(tmp_path,fake_loader,capsys):
+    assert cli.main(base(tmp_path)) == 0
+    options = fake_loader[0][2]
+    assert (options['device'], options['dtype'], options['backend']) == ('auto', 'auto', 'auto')
+
+
+def test_explicit_runtime_flags_override_auto(tmp_path,fake_loader,capsys):
+    assert cli.main(base(tmp_path)+['--device','cpu','--dtype','float32','--backend','reference']) == 0
+    options = fake_loader[0][2]
+    assert (options['device'], options['dtype'], options['backend']) == ('cpu', 'float32', 'reference')
 
 
 def test_schema_file_and_c4_policy(tmp_path,fake_loader,capsys):

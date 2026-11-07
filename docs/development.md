@@ -18,6 +18,10 @@ PyTorch/Transformers (`models`), XGrammar (`grammar`), JSON Schema validation
 constructed models; they do not download pretrained weights. GPU tests skip on
 hosts without CUDA. A build failure on a CUDA host is a test failure.
 
+On a CPU-only host, omit the `triton` extra. Generation with `auto` device, dtype
+and backend then runs on the CPU in float32 with reference selection; tests pin
+CPU execution explicitly where they compare against CPU references.
+
 ## Distribution checks
 
 ```bash

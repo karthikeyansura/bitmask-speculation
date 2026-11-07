@@ -41,38 +41,70 @@ def schema_document(schema: str | dict | bool) -> str:
     return json.dumps(schema, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+DTYPES = ("float32", "float16", "bfloat16")
+
+
+def resolve_device(device: str = "auto"):
+    """``auto`` selects the current CUDA device when available, else the CPU."""
+    import torch
+    if device == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda", torch.cuda.current_device())
+        return torch.device("cpu")
+    resolved = torch.device(device)
+    if resolved.type not in {"cpu", "cuda"}:
+        raise ValueError("supported devices are auto, cpu and cuda")
+    if resolved.type == "cuda" and not torch.cuda.is_available():
+        raise ValueError("CUDA device is unavailable")
+    return resolved
+
+
+def resolve_dtype(dtype: str, device) -> str:
+    """``auto`` selects bfloat16 on CUDA when supported, else float16; float32 on CPU."""
+    if dtype == "auto":
+        if device.type != "cuda":
+            return "float32"
+        import torch
+        if torch.version.hip is not None:
+            supported = torch.cuda.is_bf16_supported()
+        else:
+            supported = torch.cuda.get_device_capability(device) >= (8, 0)
+        return "bfloat16" if supported else "float16"
+    if dtype not in DTYPES:
+        raise ValueError("unsupported dtype")
+    return dtype
+
+
 class TransformersEngine:
     """Load once, then create independent request grammar state on each call.
 
     Draft rounds reuse a local KV cache; target evaluation remains full-prefix.
-    This single-device greedy engine does not apply chat
-    templates or generation-config processors. Constrained selection can explicitly
-    dispatch to CUDA or Triton; reference is the default.
+    This single-device greedy engine does not apply chat templates or
+    generation-config processors. ``auto`` device, dtype and backend resolve to
+    CUDA, bfloat16/float16 and Triton/CUDA when available; ``device``, ``dtype``
+    and ``backend`` record the resolved choices.
     """
 
     @classmethod
     def from_pretrained(
         cls, target: ModelSpec, draft: ModelSpec | None = None, *,
-        device: str = "cpu", dtype: str = "float32", local_files_only: bool = False,
-        backend: str = "reference", draft_cache: bool = True,
+        device: str = "auto", dtype: str = "auto", local_files_only: bool = False,
+        backend: str = "auto", draft_cache: bool = True,
     ) -> "TransformersEngine":
         if not isinstance(target, ModelSpec) or (draft is not None and not isinstance(draft, ModelSpec)):
             raise TypeError("target and draft must be ModelSpec instances")
         if type(draft_cache) is not bool:
             raise TypeError("draft_cache must be a boolean")
-        if dtype not in {"float32", "float16", "bfloat16"}:
+        if dtype != "auto" and dtype not in DTYPES:
             raise ValueError("unsupported dtype")
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
         from .transformers import TransformersGreedyModel
+        from ..kernels.dispatch import resolve_backend
 
-        resolved = torch.device(device)
-        if resolved.type not in {"cpu", "cuda"}:
-            raise ValueError("supported devices are cpu and cuda")
-        if resolved.type == "cuda" and not torch.cuda.is_available():
-            raise ValueError("CUDA device is unavailable")
-        from ..kernels.dispatch import validate_backend
-        validate_backend(backend, resolved)
+        resolved = resolve_device(device)
+        dtype = resolve_dtype(dtype, resolved)
+        backend = resolve_backend(backend, resolved)
         def options(spec):
             return dict(revision=spec.revision, local_files_only=local_files_only, trust_remote_code=False)
         tokenizer = AutoTokenizer.from_pretrained(target.source, **options(target))
@@ -104,6 +136,7 @@ class TransformersEngine:
         self.decoder = DecodingEngine(target_adapter, draft_adapter)
         self.eos_token_ids = eos
         self.target_spec, self.draft_spec = target, draft
+        self.device, self.dtype, self.backend = str(resolved), dtype, backend
         self._compiler = None
         return self
 

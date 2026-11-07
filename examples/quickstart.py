@@ -9,7 +9,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('target', type=Path)
     parser.add_argument('draft', type=Path)
-    parser.add_argument('--device', default='cpu')
+    parser.add_argument('--device', default='auto')
     args = parser.parse_args()
     if not args.target.is_dir() or not args.draft.is_dir():
         parser.error('target and draft must be local model directories')

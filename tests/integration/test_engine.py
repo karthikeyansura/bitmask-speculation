@@ -36,7 +36,15 @@ def local_pair(tmp_path_factory):
 
 @pytest.fixture(scope='module')
 def engine(local_pair):
-    return TransformersEngine.from_pretrained(*(ModelSpec(str(p)) for p in local_pair), local_files_only=True)
+    return TransformersEngine.from_pretrained(*(ModelSpec(str(p)) for p in local_pair), device='cpu',
+                                              local_files_only=True)
+
+
+def test_auto_defaults_without_cuda(local_pair, monkeypatch):
+    monkeypatch.setattr(torch.cuda, 'is_available', lambda: False)
+    engine = TransformersEngine.from_pretrained(ModelSpec(str(local_pair[0])), local_files_only=True)
+    assert (engine.device, engine.dtype, engine.backend) == ('cpu', 'float32', 'reference')
+    assert next(engine.decoder.target._model.parameters()).dtype == torch.float32
 
 
 @pytest.mark.parametrize('mode', ['target_unconstrained', 'target_constrained', 'c1', 'c2', 'c3', 'c4'])
@@ -79,7 +87,7 @@ def test_target_only_loading_does_not_load_a_draft(local_pair, monkeypatch):
     def load(*args, **kwargs):
         calls.append((args,kwargs));return original(*args,**kwargs)
     monkeypatch.setattr(transformers.AutoModelForCausalLM,'from_pretrained',load)
-    engine=TransformersEngine.from_pretrained(ModelSpec(str(local_pair[0])),local_files_only=True)
+    engine=TransformersEngine.from_pretrained(ModelSpec(str(local_pair[0])),device='cpu',local_files_only=True)
     engine.generate('x',max_new_tokens=0)
     engine.generate('x',max_new_tokens=0)
     assert len(calls)==1

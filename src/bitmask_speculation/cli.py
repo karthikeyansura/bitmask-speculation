@@ -41,9 +41,9 @@ def parser():
     generate.add_argument("--max-new-tokens", type=_nonnegative, default=128)
     generate.add_argument("--draft-budget", type=_positive, help="fixed K for c1, c2 or c3 (default: 5)")
     generate.add_argument("--max-draft-budget", type=_positive, help="maximum C4 K (default: 8)")
-    generate.add_argument("--device", default="cpu", help="cpu or cuda[:index]")
-    generate.add_argument("--backend", choices=("reference", "cuda", "triton"), default="reference")
-    generate.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="float32")
+    generate.add_argument("--device", default="auto", help="auto, cpu or cuda[:index] (default: auto)")
+    generate.add_argument("--backend", choices=("auto", "reference", "cuda", "triton"), default="auto")
+    generate.add_argument("--dtype", choices=("auto", "float32", "float16", "bfloat16"), default="auto")
     generate.add_argument("--local-files-only", action="store_true")
     generate.add_argument("--no-draft-cache", action="store_true",
                           help="recompute full draft prefixes instead of caching within each round")
@@ -87,7 +87,8 @@ def main(argv=None) -> int:
             print(result.text)
         else:
             print(json.dumps({
-                "mode": args.mode, "text": result.text, "token_ids": result.token_ids,
+                "mode": args.mode, "device": engine.device, "dtype": engine.dtype,
+                "backend": engine.backend, "text": result.text, "token_ids": result.token_ids,
                 "stop_reason": result.stop_reason, "eos_token_id": result.eos_token_id,
                 "accounting": None if result.accounting is None else asdict(result.accounting),
                 "schedule": [asdict(item) for item in result.schedule],
