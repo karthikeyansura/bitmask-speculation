@@ -72,3 +72,10 @@ def test_runtime_error_is_not_success(tmp_path,monkeypatch,capsys):
 def test_explicit_backend_reaches_loader(tmp_path,fake_loader,capsys):
     assert cli.main(base(tmp_path)+['--backend','triton','--device','cuda']) == 0
     assert fake_loader[0][2]['backend'] == 'triton'
+
+
+@pytest.mark.parametrize('uncached', [False, True])
+def test_draft_cache_option_reaches_loader(tmp_path, fake_loader, capsys, uncached):
+    options = ['--no-draft-cache'] if uncached else []
+    assert cli.main(base(tmp_path) + options) == 0
+    assert fake_loader[0][2]['draft_cache'] is not uncached

@@ -18,7 +18,7 @@ def parser():
     kernel.add_argument('--warmups', type=int, default=5)
     kernel.add_argument('--repetitions', type=int, default=20)
     kernel.add_argument('--output', required=True)
-    decode = commands.add_parser('decode', help='time full-prefix decoding over a workload manifest')
+    decode = commands.add_parser('decode', help='time speculative decoding over a workload manifest')
     decode.add_argument('--workloads', required=True)
     decode.add_argument('--target', required=True)
     decode.add_argument('--draft', required=True)
@@ -28,6 +28,8 @@ def parser():
     decode.add_argument('--dtype', choices=('float32', 'float16', 'bfloat16'), default='float32')
     decode.add_argument('--backend', choices=('reference', 'cuda', 'triton'), default='reference')
     decode.add_argument('--local-files-only', action='store_true')
+    decode.add_argument('--no-draft-cache', action='store_true',
+                        help='recompute full draft prefixes for uncached comparisons')
     decode.add_argument('--chat-template', action='store_true')
     decode.add_argument('--budgets', type=int, nargs='+', default=[1, 2, 4, 8])
     decode.add_argument('--warmups', type=int, default=1)

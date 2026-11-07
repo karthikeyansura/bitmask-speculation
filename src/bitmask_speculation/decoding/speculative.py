@@ -1,6 +1,7 @@
 """Request-level greedy speculation with target-controlled termination."""
 
 from collections.abc import Iterable, Iterator, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Literal, Protocol, cast
 
@@ -74,18 +75,21 @@ def _draft_proposals(
         if vocabulary_size(branch.vocab_size) != vocab_size:
             raise ValueError("forked grammar vocabulary differs")
     proposals: list[int] = []
-    for _ in range(budget):
-        if branch is not None and branch.is_terminated():
-            break
-        context = prefix + tuple(proposals)
-        choice = (
-            draft.next_token(context) if branch is None
-            else draft.next_token(context, grammar=branch)
-        )
-        token = token_id(choice, vocab_size, "draft token")
-        if token in eos:
-            break
-        proposals.append(token)
+    session = getattr(draft, "draft_session", None)
+    # Optional model-owned cache lifetime ends before target verification.
+    with (nullcontext(draft) if session is None else session()) as proposer:
+        for _ in range(budget):
+            if branch is not None and branch.is_terminated():
+                break
+            context = prefix + tuple(proposals)
+            choice = (
+                proposer.next_token(context) if branch is None
+                else proposer.next_token(context, grammar=branch)
+            )
+            token = token_id(choice, vocab_size, "draft token")
+            if token in eos:
+                break
+            proposals.append(token)
     return tuple(proposals)
 
 

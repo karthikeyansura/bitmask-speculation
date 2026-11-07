@@ -44,7 +44,8 @@ def schema_document(schema: str | dict | bool) -> str:
 class TransformersEngine:
     """Load once, then create independent request grammar state on each call.
 
-    This is a single-device, uncached, greedy reference. It does not apply chat
+    Draft rounds reuse a local KV cache; target evaluation remains full-prefix.
+    This single-device greedy engine does not apply chat
     templates or generation-config processors. Constrained selection can explicitly
     dispatch to CUDA or Triton; reference is the default.
     """
@@ -53,10 +54,12 @@ class TransformersEngine:
     def from_pretrained(
         cls, target: ModelSpec, draft: ModelSpec | None = None, *,
         device: str = "cpu", dtype: str = "float32", local_files_only: bool = False,
-        backend: str = "reference",
+        backend: str = "reference", draft_cache: bool = True,
     ) -> "TransformersEngine":
         if not isinstance(target, ModelSpec) or (draft is not None and not isinstance(draft, ModelSpec)):
             raise TypeError("target and draft must be ModelSpec instances")
+        if type(draft_cache) is not bool:
+            raise TypeError("draft_cache must be a boolean")
         if dtype not in {"float32", "float16", "bfloat16"}:
             raise ValueError("unsupported dtype")
         import torch
@@ -85,7 +88,7 @@ class TransformersEngine:
             model = AutoModelForCausalLM.from_pretrained(
                 spec.source, torch_dtype=getattr(torch, dtype), **options(spec)
             ).to(resolved).eval()
-            return model, TransformersGreedyModel(model, backend=backend)
+            return model, TransformersGreedyModel(model, backend=backend, draft_cache=draft_cache)
         target_model, target_adapter = load(target)
         draft_adapter = None if draft is None else load(draft)[1]
         if max(tokenizer.get_vocab().values()) >= target_adapter.vocab_size:

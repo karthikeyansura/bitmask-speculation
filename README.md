@@ -103,10 +103,13 @@ copied to the model device. Checked selection reads status before advancing stat
 C4 density queries still use the CPU count reference. Returned kernel outputs own
 their storage; workspace reuse applies only to intermediate reductions.
 
-The model adapter evaluates full prefixes with `use_cache=False`. Generation is
-single-request, single-device and greedy. Batched reduction primitives do not
-batch the request loop. The standalone sampler is not a stochastic speculative
-decoder. See [kernel contracts](docs/kernels.md) for shapes, limits and stream rules.
+Drafting caches the committed prefix once per round, then evaluates one token
+at a time. The cache is released before target verification. Use `--no-draft-cache`
+for uncached comparisons. Target evaluation remains full-prefix with
+`use_cache=False`. Generation is single-request, single-device and greedy.
+Batched reduction primitives do not batch the request loop. The standalone
+sampler is not a stochastic speculative decoder. See
+[kernel contracts](docs/kernels.md) for shapes, limits and stream rules.
 
 ## Measure
 
@@ -125,10 +128,12 @@ python -m bitmask_speculation.benchmarks report /tmp/bitmask-decoding
 ```
 
 Reduction measurements separate graph-device replay, asynchronous wrapper latency
-and checked wrapper latency. Decode trials include full-prefix model work,
-verification, masks and scheduling; setup and output validation are excluded.
-These comparisons describe the uncached implementation, not a cached serving
-engine. `--chat-template` renders a user turn with `enable_thinking=False`.
+and checked wrapper latency. Decode trials include target forward passes,
+drafting, verification, masks and scheduling; setup and output validation are
+excluded. Reports record the draft cache mode. The published A10G trials used
+uncached drafting; reproduce that mode with `--no-draft-cache`. They do not measure
+cached drafting or a cached serving engine. `--chat-template` renders a user turn
+with `enable_thinking=False`.
 
 Each run uses a new output directory and retains source/model identities, hardware,
 configuration, independent references and raw trials. A speedup is emitted only
