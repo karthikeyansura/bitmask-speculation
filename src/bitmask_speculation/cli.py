@@ -45,6 +45,8 @@ def parser():
     generate.add_argument("--backend", choices=("reference", "cuda", "triton"), default="reference")
     generate.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="float32")
     generate.add_argument("--local-files-only", action="store_true")
+    generate.add_argument("--no-draft-cache", action="store_true",
+                          help="recompute full draft prefixes instead of caching within each round")
     generate.add_argument("--output-format", choices=("json", "text"), default="json")
     return root
 
@@ -74,7 +76,7 @@ def main(argv=None) -> int:
         draft = None if args.draft is None else ModelSpec(args.draft, args.draft_revision)
         engine = TransformersEngine.from_pretrained(
             target, draft, device=args.device, dtype=args.dtype, backend=args.backend,
-            local_files_only=args.local_files_only,
+            local_files_only=args.local_files_only, draft_cache=not args.no_draft_cache,
         )
         result = engine.generate(
             args.prompt, max_new_tokens=args.max_new_tokens, mode=args.mode, schema=schema,

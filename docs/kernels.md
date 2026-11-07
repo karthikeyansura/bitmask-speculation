@@ -145,8 +145,8 @@ argmax remains PyTorch. Grammar transitions occur only after checked selection.
 
 XGrammar exposes owned CPU packed-mask snapshots. Native dispatch copies a
 snapshot to the model device each selection. Float16 and bfloat16 scores widen
-exactly to float32; float64 is rejected by native selection. No KV caching,
-GPU-resident grammar, or transfer elimination is implied. C4 scheduling still
+exactly to float32; float64 is rejected by native selection. These primitives do
+not manage model KV caches, GPU-resident grammar, or eliminate mask transfers. C4 scheduling still
 uses the CPU mask-density reference; the fused Triton count does not replace it.
 
 ### Scratch ownership

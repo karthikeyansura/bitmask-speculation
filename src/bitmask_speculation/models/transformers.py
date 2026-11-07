@@ -1,8 +1,9 @@
-"""Full-prefix adapter for an already loaded Transformers causal language model."""
+"""Full-prefix target evaluation and round-local cached draft evaluation."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from ..decoding._validation import token_id, vocabulary_size
@@ -15,16 +16,19 @@ if TYPE_CHECKING:
 
 
 class TransformersGreedyModel:
-    """Uncached, single-device reference with optional grammar-constrained selection.
+    """Single-device greedy evaluation with optional grammar-constrained selection.
 
     Load the model, move it to its intended device, and call ``eval()`` before
     constructing the adapter. No tokenizer, weights, or device is chosen here.
     Generation-config processors, sampling and model offloading are not applied.
     """
 
-    def __init__(self, model: PreTrainedModel, *, backend: str = "reference") -> None:
+    def __init__(self, model: PreTrainedModel, *, backend: str = "reference", draft_cache: bool = True) -> None:
         import torch
 
+        if type(draft_cache) is not bool:
+            raise TypeError("draft_cache must be a boolean")
+        self.draft_cache = draft_cache
         if model.training:
             raise ValueError("call model.eval() before constructing the adapter")
         if getattr(model.config, "is_encoder_decoder", False):
@@ -59,13 +63,32 @@ class TransformersGreedyModel:
         with torch.inference_mode():
             input_ids = torch.tensor([prefix], dtype=torch.long, device=self._device)
             output = self._model(input_ids=input_ids, use_cache=False, return_dict=True)
-            logits = output.logits
-            expected = (1, len(prefix), self.vocab_size)
-            if not isinstance(logits, torch.Tensor) or tuple(logits.shape) != expected:
-                raise ValueError(f"expected model logits with shape {expected}")
-            if not logits.is_floating_point():
-                raise TypeError("model logits must have a floating-point dtype")
-            return logits[0]
+            return self._logits(output, len(prefix))
+
+    def _logits(self, output, length: int):
+        logits = output.logits
+        expected = (1, length, self.vocab_size)
+        if not isinstance(logits, self._torch.Tensor) or tuple(logits.shape) != expected:
+            raise ValueError(f"expected model logits with shape {expected}")
+        if not logits.is_floating_point():
+            raise TypeError("model logits must have a floating-point dtype")
+        return logits[0]
+
+    @contextmanager
+    def draft_session(self):
+        """Own one draft round's cache; discard it on completion or failure.
+
+        Target calls and standalone next_token calls remain uncached. Sessions
+        never share model cache state, including when the adapter is reused.
+        """
+        if not self.draft_cache:
+            yield self
+            return
+        session = _DraftSession(self)
+        try:
+            yield session
+        finally:
+            session.close()
 
     def _check_grammar(self, grammar: GrammarState | None) -> None:
         if grammar is not None and vocabulary_size(grammar.vocab_size) != self.vocab_size:
@@ -136,3 +159,49 @@ class TransformersGreedyModel:
                 choices.close()
 
         return constrained_choices()
+
+
+class _DraftSession:
+    """Append-only cache owned by a single speculative proposal round."""
+
+    def __init__(self, adapter: TransformersGreedyModel):
+        self.adapter = adapter
+        self._cache = None
+        self._expected_prefix = None
+        self._closed = False
+
+    def close(self):
+        self._cache = None
+        self._expected_prefix = None
+        self._closed = True
+
+    def next_token(self, prefix: tuple[int, ...], *, grammar: GrammarState | None = None) -> int:
+        if self._closed:
+            raise RuntimeError("draft session is closed")
+        adapter = self.adapter
+        prefix = adapter._prefix(prefix)
+        adapter._check_grammar(grammar)
+        if grammar is not None and grammar.is_terminated():
+            raise GrammarTerminatedError("grammar has terminated")
+        if adapter._model.training:
+            raise ValueError("model must remain in evaluation mode")
+        if self._expected_prefix is not None and prefix != self._expected_prefix:
+            raise ValueError("draft session requires its previous choice appended to the prefix")
+        tokens = prefix if self._cache is None else prefix[-1:]
+        torch = adapter._torch
+        with torch.inference_mode():
+            output = adapter._model(
+                input_ids=torch.tensor([tokens], dtype=torch.long, device=adapter._device),
+                attention_mask=torch.ones((1, len(prefix)), dtype=torch.long, device=adapter._device),
+                position_ids=torch.arange(len(prefix) - len(tokens), len(prefix),
+                                          device=adapter._device).unsqueeze(0),
+                past_key_values=self._cache, use_cache=True, return_dict=True,
+            )
+            logits = adapter._logits(output, len(tokens))
+            cache = getattr(output, "past_key_values", None)
+            if cache is None:
+                raise RuntimeError("draft model did not return past_key_values; disable draft_cache for this model")
+            token = adapter._select_token(logits[-1], grammar)
+            self._cache = cache
+            self._expected_prefix = prefix + (token,)
+            return token

@@ -62,7 +62,7 @@ def setup():
                   synchronize=sync, clock=clock, fixed_budgets=[1, 4], repetitions=3,
                   policy=DensityPolicy(.25, .75, 1, 4))
     target = TransformersGreedyModel(PositionModel(1).eval())
-    draft = TransformersGreedyModel(PositionModel(2).eval())
+    draft = TransformersGreedyModel(PositionModel(2).eval(), draft_cache=False)
     return target, draft, case, kwargs, states, events
 
 
@@ -216,3 +216,18 @@ def test_reference_callback_precedes_measurements(setup):
     assert len(references) == 1 and set(references[0]) == {False, True}
     assert all(r.token_ids == references[0][r.variant not in {'c1','target_unconstrained'}].token_ids
                for r in records)
+
+
+def test_report_rejects_mixed_cache_modes(setup):
+    from bitmask_speculation.benchmarks.report import compare_case
+    target, draft, case, kwargs, _, _ = setup
+    records = list(run_budget_sweep(target, draft, case, **kwargs))
+    changed = []
+    for record in records:
+        metadata = json.loads(record.metadata_json)
+        if record.variant == 'c3':
+            metadata.update(timing_scope='round_cached_draft_loop', draft_cache='per_round')
+            record = replace(record, metadata_json=json.dumps(metadata))
+        changed.append(record)
+    with pytest.raises(ValueError, match='metadata differs'):
+        compare_case(changed, budgets=[1,4], repetitions=3)

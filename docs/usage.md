@@ -58,7 +58,9 @@ The facade decodes content without stripping special tokens or normalizing space
 No throughput metric is inferred from these calls. Model loading, grammar
 compilation and decoding timing belong to the benchmark harness.
 
-The engine keeps full-prefix model evaluation and accepts an explicit
+The engine uses full-prefix target evaluation and a fresh draft KV cache per
+proposal round. Set `draft_cache=False` when loading the engine, or pass
+`--no-draft-cache` to either CLI, for uncached drafting. It accepts an explicit
 `backend="reference"`, `"cuda"`, or `"triton"` for constrained token selection.
 The reference backend is the default. See [backend contracts](kernels.md#triton-reductions)
 for precision, mask transfers and synchronization. This is still single-request
@@ -176,7 +178,12 @@ The caller must keep the total prefix within the model's context capacity.
 
 For prefix length `L`, the adapter consumes logits shaped `[1, L, vocab_size]`
 and selects from position `L - 1`. It runs in inference mode, requires evaluation
-mode, disables the KV cache, and recomputes the full prefix on every prediction.
+mode, and recomputes the full prefix for standalone `next_token` and target
+verification calls. The speculative loop opens `draft_session()` for each round: it
+prefills once, passes only each new token with its cached keys/values, and releases
+the cache before verification. Attention masks cover cached and current tokens;
+position IDs follow the unpadded prefix. Each session owns its cache exclusively.
+Models must return `past_key_values`, or use `draft_cache=False`.
 Exact ties choose the lowest token ID; NaN next-token logits fail explicitly.
 Infinities retain normal argmax ordering, including lowest-ID selection when
 all scores are negative infinity. This unmasked adapter has no validity mask;
@@ -424,8 +431,8 @@ Each round follows this sequence:
 
 A rejected tail cannot contaminate the next round. Full acceptance also discards
 the fork; the target advances the parent once for every consumed choice. No
-commit or merge of the draft branch is needed. There is no KV cache to roll back
-in the current full-prefix model adapter.
+commit or merge of the draft branch is needed. The round-local draft cache is
+also discarded, on normal exit, EOS, grammar termination or an exception.
 
 ### EOS, limits and errors
 
@@ -499,10 +506,10 @@ compares their counters. See [proposal accounting](design.md#proposal-accounting
    if the request still has room and has not terminated.
 
 No model cache is carried across rounds in the current Transformers adapter.
-Each draft prediction recomputes its full prefix; target verification performs
-one forward over the committed prefix and proposals. Rejection therefore needs
-no cache rollback. A future cached implementation must preserve the same prefix
-and state semantics.
+Drafting prefills the committed prefix once, then feeds one token per prediction.
+Target verification performs one forward over the committed prefix and proposals.
+Rejection needs no cache truncation because the entire draft cache has already
+been released. Model adapters without `draft_session()` retain full-prefix calls.
 
 ### Termination and validation
 
@@ -533,6 +540,7 @@ rolled back automatically. State belongs exclusively to one active request.
 
 The reference path handles one request at a time, with a fixed or density-selected draft budget,
 optional grammar constraints on the target or both models, and greedy selection.
-It has request-level proposal counters, but no KV-cache reuse, sampling, or request batching. C4 optionally selects the budget using a
+It has request-level proposal counters and draft KV reuse within each round.
+Target caching, sampling and request batching are not implemented. C4 selects the budget using a
 [density-threshold policy](design.md#draft-scheduling). The full prompt plus proposal sequence must
 fit the model's context capacity; no implicit truncation is applied.

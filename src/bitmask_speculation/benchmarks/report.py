@@ -14,6 +14,8 @@ def compare_case(records, *, budgets, repetitions):
     expected.update((mode, k) for mode in ('c1', 'c2', 'c3') for k in budgets)
     if {(r.variant, r.draft_budget) for r in records} != expected:
         raise ValueError('missing or unexpected sweep configurations')
+    if len({r.metadata_json for r in records}) != 1:
+        raise ValueError('execution metadata differs across compared configurations')
     groups = {}
     for record in records:
         groups.setdefault((record.variant, record.draft_budget), []).append(record)
@@ -31,7 +33,10 @@ def compare_case(records, *, budgets, repetitions):
         allowed = eligible(row) and eligible(reference)
         row.update(baseline=baseline, speedup_eligible=allowed,
                    latency_speedup=reference['decode_seconds'] / row['decode_seconds'] if allowed else None)
+    metadata = json.loads(records[0].metadata_json)
+    execution = {key: metadata[key] for key in ('timing_scope', 'draft_cache', 'target_cache') if key in metadata}
     return {'case_id': records[0].workload.case_id, 'fingerprint': records[0].workload.fingerprint,
+            'execution': execution,
             'configurations': summaries}
 
 

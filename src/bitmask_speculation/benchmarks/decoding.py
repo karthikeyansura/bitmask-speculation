@@ -45,7 +45,8 @@ def run_decoding(args):
         run.write('models.json', identities)
         start = perf_counter()
         engine = TransformersEngine.from_pretrained(target, draft, device=args.device,
-            dtype=args.dtype, backend=args.backend, local_files_only=args.local_files_only)
+            dtype=args.dtype, backend=args.backend, local_files_only=args.local_files_only,
+            draft_cache=not args.no_draft_cache)
         import torch
         device = torch.device(args.device)
         synchronize = (lambda: torch.cuda.synchronize(device)) if device.type == 'cuda' else (lambda: None)
@@ -67,7 +68,10 @@ def run_decoding(args):
             'target_revision': identities['target']['revision'], 'draft_revision': identities['draft']['revision'],
             'tokenizer_revision': 'sha256:' + sha256(tokenizer_json.encode()).hexdigest(),
             'device': str(device), 'precision': args.dtype, 'backend': args.backend,
-            'dependencies': json.dumps(env, sort_keys=True), 'timing_scope': 'full_prefix_loop',
+            'dependencies': json.dumps(env, sort_keys=True),
+            'timing_scope': 'full_prefix_loop' if args.no_draft_cache else 'round_cached_draft_loop',
+            'draft_cache': 'disabled' if args.no_draft_cache else 'per_round',
+            'target_cache': 'disabled',
             'prompt_format': 'chat_template_no_thinking' if args.chat_template else 'raw'}
         summaries = []
         for case in workloads:

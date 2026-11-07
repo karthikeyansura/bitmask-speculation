@@ -46,8 +46,8 @@ def run_budget_sweep(
     if on_reference is not None and not callable(on_reference):
         raise TypeError("on_reference must be callable")
     metadata = dict(metadata)
-    if metadata.get("timing_scope") != "full_prefix_loop":
-        raise ValueError("budget sweeps require timing_scope=full_prefix_loop")
+    if metadata.get("timing_scope") not in {"full_prefix_loop", "round_cached_draft_loop"}:
+        raise ValueError("budget sweeps require a supported decode-loop timing_scope")
     metadata.update(sweep_repetitions=str(repetitions), sweep_warmups=str(warmups),
                     sweep_order="rotate_left_by_repetition")
     prompt, eos = tuple(prompt_token_ids), tuple(eos_token_ids)
