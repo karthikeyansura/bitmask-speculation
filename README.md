@@ -40,33 +40,27 @@ the constrained target across six schema regimes: enum-heavy and nested-record
 schemas were faster, the other four slower. See the
 [per-schema results](docs/benchmarks.md#a10g-measurements).
 
-## Install
+## GPU quickstart
 
-Python 3.12 or later. From the checkout:
+Python 3.12 or later on a Linux NVIDIA host. From the checkout:
 
 ```bash
-uv sync --locked --extra models --extra grammar --extra benchmarks
+uv sync --locked --extra models --extra grammar --extra benchmarks --extra triton
 source .venv/bin/activate
-bitmask-speculation generate --help
-```
-
-Add `--extra triton` on a Linux NVIDIA host for Triton. CUDA extension builds also
-need a compatible CUDA toolkit, C++ compiler and Ninja. See the
-[development guide](docs/development.md) for installed-wheel and GPU checks.
-The base package imports without model dependencies or a CUDA compiler.
-
-## Generate
-
-```bash
 bitmask-speculation generate 'Return a colour:' \
   --target /path/to/target --draft /path/to/draft --local-files-only \
-  --mode c3 --schema-json '{"enum":["red","blue"]}' --max-new-tokens 32
+  --mode c4 --schema-json '{"enum":["red","blue"]}' --max-new-tokens 32
 ```
 
+`--device`, `--dtype` and `--backend` default to `auto`: the current CUDA
+device, bfloat16 (float16 below compute capability 8.0) and Triton, falling back
+to the CUDA extension and then the reference backend. Without CUDA, `auto`
+selects CPU, float32 and reference. Explicit flags override each choice, and the
+JSON output records the resolved values. The CUDA backend compiles its extension
+on first use and needs a CUDA toolkit, C++ compiler and Ninja.
+
 For Hub models, supply full `--target-revision` and `--draft-revision` SHAs.
-Target and draft tokenizer definitions must match. Use `--device cuda:0
---dtype bfloat16 --backend triton` for constrained Triton selection on a supported
-GPU. CPU/float32 with `reference` selection is the default.
+Target and draft tokenizer definitions must match.
 
 | Mode | Draft selection | Target selection | Budget |
 |---|---|---|---|
@@ -150,12 +144,7 @@ Nsight Compute entry points for the installed reduction backends.
 [A10G measurements](docs/benchmarks.md#a10g-measurements) include raw reduction
 samples and per-schema decoding comparisons, including regressions.
 
-## Test
+## Development
 
-```bash
-uv run --locked --extra models --extra grammar --extra benchmarks pytest -q
-```
-
-CPU hosts skip CUDA execution checks. Device-guard tests require two visible
-CUDA devices in one process. [Development](docs/development.md) includes native
-builds and sanitizer commands.
+The [development guide](docs/development.md) covers CPU-only installs, the test
+suite, installed-wheel checks, native builds and sanitizers.

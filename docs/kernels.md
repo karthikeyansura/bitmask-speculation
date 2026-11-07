@@ -41,8 +41,9 @@ when passing tensors produced on another stream.
 
 ### Build and tests
 
-The decoder defaults to reference selection; native dispatch into generation
-is explicit through the backend option. The relevant upstream contracts are
+`TransformersGreedyModel` defaults to reference selection. `TransformersEngine`
+and the CLI default to `auto`, which selects Triton, else the CUDA extension when
+its build prerequisites are present, else reference. The relevant upstream contracts are
 [PyTorch extension loading](https://docs.pytorch.org/docs/stable/cpp_extension.html)
 and [CUDA stream semantics](https://docs.pytorch.org/docs/stable/notes/cuda.html).
 

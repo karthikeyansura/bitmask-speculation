@@ -60,9 +60,13 @@ compilation and decoding timing belong to the benchmark harness.
 
 The engine uses full-prefix target evaluation and a fresh draft KV cache per
 proposal round. Set `draft_cache=False` when loading the engine, or pass
-`--no-draft-cache` to either CLI, for uncached drafting. It accepts an explicit
-`backend="reference"`, `"cuda"`, or `"triton"` for constrained token selection.
-The reference backend is the default. See [backend contracts](kernels.md#triton-reductions)
+`--no-draft-cache` to either CLI, for uncached drafting. `device`, `dtype` and
+`backend` default to `"auto"`: the current CUDA device when available, bfloat16
+on compute capability 8.0 or newer and float16 below it, and Triton, else the CUDA
+extension, else reference selection. Without CUDA, `auto` selects CPU, float32 and
+reference. Explicit `"reference"`, `"cuda"` or `"triton"` values are validated and
+never fall back. The engine's `device`, `dtype` and `backend` attributes record the
+resolved values. See [backend contracts](kernels.md#triton-reductions)
 for precision, mask transfers and synchronization. This is still single-request
 inference; batched primitives do not batch grammar transitions.
 
@@ -86,8 +90,8 @@ bitmask-speculation generate 'Return a colour:' \
 
 For Hub IDs, supply full `--target-revision` and `--draft-revision` SHAs.
 Both model and tokenizer loads use those revisions; remote model code is disabled.
-Use `--device cuda --dtype bfloat16` on a compatible NVIDIA host. CPU/float32 is the
-default. The selected device is explicit.
+`--device`, `--dtype` and `--backend` default to `auto` with the same resolution
+as the Python API. Pass explicit values to override any of them.
 
 `--schema-file schema.json` and `--schema-json '{...}'` are mutually exclusive.
 Constrained modes require a schema; unconstrained modes reject one. Schemas are
@@ -95,8 +99,9 @@ explicit JSON documents and external references are rejected. Target-only modes
 reject draft options. Fixed `--draft-budget` applies to C1–C3; C4 instead accepts
 `--max-draft-budget` and uses the default density thresholds.
 
-The default stdout is one JSON object containing text, content token IDs, stop
-reason, selected EOS, proposal accounting and schedule. `--output-format text`
+The default stdout is one JSON object containing the resolved device, dtype and
+backend, text, content token IDs, stop reason, selected EOS, proposal accounting
+and schedule. `--output-format text`
 prints only generated content. Errors go to stderr. Exit code 2 indicates command
 usage errors; exit code 1 indicates a load, schema or generation error. A successful
 length-limited request still exits 0; inspect `stop_reason` and validate the output
@@ -106,9 +111,9 @@ No latency or throughput number is printed. The benchmark harness must define
 warmup, synchronization and timing boundaries separately. See [engine contracts](usage.md#engine) and the
 [Python example](../examples/quickstart.py).
 
-Use `--backend reference|cuda|triton` to select constrained token processing.
-Native backends require `--device cuda`; unsupported hardware fails before model
-loading. See [backend contracts](kernels.md#triton-reductions).
+Use `--backend reference|cuda|triton` to select constrained token processing
+explicitly. Native backends require a CUDA device; unsupported hardware fails
+before model loading. See [backend contracts](kernels.md#triton-reductions).
 
 <a id="reference-decoding"></a>
 
