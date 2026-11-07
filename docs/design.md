@@ -34,13 +34,14 @@ still be pending consumption. Recomputing the prefix is a valid reference path.
 Drafting uses temporary state. Rejection must discard speculative grammar and
 cache state beyond the accepted prefix before the next round begins.
 
-The Transformers target cache spans one request. After verification it covers the
+With `target_cache=True`, the Transformers target cache spans one request. After
+verification it covers the
 round's prefix and proposals. The next round crops it to the longest prefix shared
 with the new committed prefix: `L + j` after a correction at proposal `j`, or every
 proposal after full acceptance. The correction or bonus is consumed first in that
 round's forward. Rollback requires full-attention layers. Recurrent and
 sliding-window layers cannot be cropped exactly, so they are rejected before any
-forward pass; `target_cache=False` recomputes the full prefix instead.
+forward pass. Without the option, each round recomputes the full prefix.
 
 ### Greedy verification
 
@@ -255,7 +256,7 @@ then apply `13`. Both approaches must reach the state before the closing brace.
 A cached model path must likewise discard cache entries for the rejected token
 and its suffix. The correction is not already represented by the target forward
 pass over the draft. Consume it before using the cache to predict what follows,
-or recompute from the committed prefix. Here the target cache keeps
+or recompute from the committed prefix. Here an enabled target cache keeps
 `L + 2` positions, ending at `[10, 12]`, and the next round feeds `13` before its
 proposals. The draft cache must also be realigned; this adapter discards it.
 

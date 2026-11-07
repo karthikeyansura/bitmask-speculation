@@ -32,7 +32,7 @@ def model_identity(spec):
 
 
 def timing_scope(args):
-    if not args.no_target_cache:
+    if args.target_cache:
         return 'request_cached_target_loop'
     return 'full_prefix_loop' if args.no_draft_cache else 'round_cached_draft_loop'
 
@@ -52,7 +52,7 @@ def run_decoding(args):
         start = perf_counter()
         engine = TransformersEngine.from_pretrained(target, draft, device=args.device,
             dtype=args.dtype, backend=args.backend, local_files_only=args.local_files_only,
-            draft_cache=not args.no_draft_cache, target_cache=not args.no_target_cache)
+            draft_cache=not args.no_draft_cache, target_cache=args.target_cache)
         import torch
         device = torch.device(args.device)
         synchronize = (lambda: torch.cuda.synchronize(device)) if device.type == 'cuda' else (lambda: None)
@@ -77,7 +77,7 @@ def run_decoding(args):
             'dependencies': json.dumps(env, sort_keys=True),
             'timing_scope': timing_scope(args),
             'draft_cache': 'disabled' if args.no_draft_cache else 'per_round',
-            'target_cache': 'disabled' if args.no_target_cache else 'per_request',
+            'target_cache': 'per_request' if args.target_cache else 'disabled',
             'prompt_format': 'chat_template_no_thinking' if args.chat_template else 'raw'}
         summaries = []
         for case in workloads:

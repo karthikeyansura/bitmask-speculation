@@ -146,9 +146,9 @@ def test_installed_cli_from_another_directory(local_pair,tmp_path):
 
 
 @pytest.mark.parametrize('flags,scope,draft_cache,target_cache', [
-    ((), 'request_cached_target_loop', 'per_round', 'per_request'),
-    (('--no-target-cache',), 'round_cached_draft_loop', 'per_round', 'disabled'),
-    (('--no-draft-cache', '--no-target-cache'), 'full_prefix_loop', 'disabled', 'disabled'),
+    ((), 'round_cached_draft_loop', 'per_round', 'disabled'),
+    (('--target-cache',), 'request_cached_target_loop', 'per_round', 'per_request'),
+    (('--no-draft-cache',), 'full_prefix_loop', 'disabled', 'disabled'),
 ])
 def test_installed_decoding_benchmark_persists_trials(local_pair, tmp_path, flags, scope, draft_cache, target_cache):
     pytest.importorskip('xgrammar')
@@ -198,7 +198,7 @@ def test_benchmark_report_recomputes_and_rejects_partial_runs(local_pair, tmp_pa
     run_decoding(SimpleNamespace(command='decode',workloads=str(tmp_path/'cases.json'),
         target=str(local_pair[0]),draft=str(local_pair[1]),target_revision=None,draft_revision=None,
         device='cpu',dtype='float32',backend='reference',local_files_only=True,
-        chat_template=False,no_draft_cache=False,no_target_cache=False,budgets=[1],warmups=1,repetitions=2,output=str(output)))
+        chat_template=False,no_draft_cache=False,target_cache=False,budgets=[1],warmups=1,repetitions=2,output=str(output)))
     report=report_directory(output)
     assert len(report['cases'])==1 and len(report['cases'][0]['configurations'])==6
     assert len((output/'references.jsonl').read_text().splitlines()) == 1

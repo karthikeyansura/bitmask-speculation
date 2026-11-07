@@ -78,8 +78,8 @@ def resolve_dtype(dtype: str, device) -> str:
 class TransformersEngine:
     """Load once, then create independent request grammar state on each call.
 
-    Each request keeps a target KV cache across rounds and each draft round a
-    local one; ``target_cache=False`` and ``draft_cache=False`` recompute prefixes.
+    Each draft round keeps a local KV cache; ``draft_cache=False`` recomputes
+    prefixes. ``target_cache=True`` keeps one target KV cache per request.
     This single-device greedy engine does not apply chat templates or
     generation-config processors. ``auto`` device, dtype and backend resolve to
     CUDA, bfloat16/float16 and Triton/CUDA when available; ``device``, ``dtype``
@@ -90,7 +90,7 @@ class TransformersEngine:
     def from_pretrained(
         cls, target: ModelSpec, draft: ModelSpec | None = None, *,
         device: str = "auto", dtype: str = "auto", local_files_only: bool = False,
-        backend: str = "auto", draft_cache: bool = True, target_cache: bool = True,
+        backend: str = "auto", draft_cache: bool = True, target_cache: bool = False,
     ) -> "TransformersEngine":
         if not isinstance(target, ModelSpec) or (draft is not None and not isinstance(draft, ModelSpec)):
             raise TypeError("target and draft must be ModelSpec instances")
