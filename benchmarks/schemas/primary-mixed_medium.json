@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "properties": {
+    "username": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "user",
+        "guest"
+      ]
+    },
+    "active": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "username",
+    "email",
+    "role",
+    "active"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "env": {
+      "type": "string",
+      "enum": [
+        "dev",
+        "staging",
+        "prod"
+      ]
+    },
+    "region": {
+      "type": "string",
+      "enum": [
+        "us-east",
+        "us-west",
+        "eu-central"
+      ]
+    },
+    "size": {
+      "type": "string",
+      "enum": [
+        "small",
+        "medium",
+        "large"
+      ]
+    }
+  },
+  "required": [
+    "env",
+    "region",
+    "size"
+  ]
+}
