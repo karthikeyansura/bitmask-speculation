@@ -1,5 +1,7 @@
 # Benchmark methodology
 
+[Six-case FP16 comparison](primary-benchmark.md) specifies the model revisions, control variants and ratio eligibility.
+
 <a id="baseline-workloads"></a>
 
 ## Baseline workloads and records

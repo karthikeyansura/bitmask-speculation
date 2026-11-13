@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "enum_only",
+      "prompt": "Pick a color from red, green, or blue.",
+      "schema": "schemas/primary-enum_only.json",
+      "max_new_tokens": 40
+    },
+    {
+      "case_id": "nested_enum",
+      "prompt": "Create a server configuration.",
+      "schema": "schemas/primary-nested_enum.json",
+      "max_new_tokens": 60
+    },
+    {
+      "case_id": "mixed_short",
+      "prompt": "Generate a person profile.",
+      "schema": "schemas/primary-mixed_short.json",
+      "max_new_tokens": 50
+    },
+    {
+      "case_id": "mixed_medium",
+      "prompt": "Create a user account.",
+      "schema": "schemas/primary-mixed_medium.json",
+      "max_new_tokens": 80
+    },
+    {
+      "case_id": "free_text_heavy",
+      "prompt": "Write a product review.",
+      "schema": "schemas/primary-free_text_heavy.json",
+      "max_new_tokens": 120
+    },
+    {
+      "case_id": "tool_call",
+      "prompt": "Search for the latest AI news.",
+      "schema": "schemas/primary-tool_call.json",
+      "max_new_tokens": 40
+    }
+  ]
+}

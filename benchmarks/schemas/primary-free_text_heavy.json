@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "product": {
+      "type": "string"
+    },
+    "review": {
+      "type": "string"
+    },
+    "rating": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "product",
+    "review",
+    "rating"
+  ]
+}

@@ -38,7 +38,9 @@ Kernel latency is not decoding throughput. With Qwen3-4B / Qwen3-0.6B in BF16,
 Triton selection and full-prefix drafting, C3 and C4 ranged from 0.62× to 1.23×
 the constrained target across six schema regimes: enum-heavy and nested-record
 schemas were faster, the other four slower. See the
-[per-schema results](docs/benchmarks.md#a10g-measurements).
+[per-schema results](docs/benchmarks.md#a10g-measurements). The
+[six-case FP16 protocol](docs/primary-benchmark.md) defines the fixed-budget and
+adaptive-budget comparison on Qwen3.5.
 
 ## GPU quickstart
 
