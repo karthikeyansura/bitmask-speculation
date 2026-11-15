@@ -19,7 +19,8 @@ def main():
     )
     result = engine.generate('Return a colour:', mode='c3', schema={'enum':['red','blue']}, max_new_tokens=32)
     print(result.text)
-    print(result.stop_reason, result.accounting)
+    print(f'stop={result.stop_reason} acceptance={result.acceptance_rate} '
+          f'yield={result.proposal_yield} tok/s={result.tokens_per_second:.1f}')
 
 
 if __name__ == '__main__':

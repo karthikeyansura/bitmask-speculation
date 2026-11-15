@@ -7,151 +7,179 @@
 [![Triton](https://img.shields.io/badge/Triton-fused%20kernel-orange.svg)](https://triton-lang.org/)
 </div>
 
-# bitmask-speculation
+This work makes speculative decoding hold up under JSON-schema constraints. The
+draft model proposes only tokens the grammar allows, a popcount over that same
+packed token mask decides how far to speculate, and CUDA and Triton kernels carry
+out the masked selection. Because every proposal is verified against the target,
+the output stays token-for-token identical to grammar-constrained greedy
+decoding. The gains concentrate where a schema leaves the fewest choices: on an
+A100, density-scheduled speculation runs up to **2.73×** faster than fixed-budget
+speculation on enum-dominated schemas.
 
-Grammar-constrained decoding masks every token a schema forbids; speculative
-decoding lets a small draft model propose tokens that the target verifies.
-Combined naively, the draft ignores the grammar, so the target rejects proposals
-it would have masked out, and every masked step adds a vocabulary-wide reduction.
+---
 
-C3 applies the target's grammar to the draft as well, and ordered prefix
-verification keeps output identical to constrained target-greedy decoding. C4
-also sets each round's draft budget from the mask density of the committed
-grammar state. Packed 32-bit token masks feed CUDA and Triton kernels for exact
-valid-token counts and deterministic masked argmax.
+## Why structured output stalls speculative decoding
 
-## GPU kernels
+Speculative decoding lets a small draft model propose K tokens that the target
+model verifies in a single forward pass; every accepted token saves a target
+forward. Structured generation adds a grammar mask at each step. An unconstrained
+draft cannot see that mask, so it spends proposals on tokens the target is
+forbidden to emit. Each one ends the round at a rejection, acceptance falls, and
+the verification cost is no longer amortized.
 
-Triton fuses the packed-mask count with masked argmax and reduces independent
-rows in one batched launch. On one A10G, for six rows of vocabulary 151,936 with
-about 1% valid bits, median microseconds per batch:
+## Approach
 
-| Backend | Graph replay | Async wrapper |
-|---|---:|---:|
-| `torch` | 257.55 | 422.86 |
-| `cuda`, per row | 1517.59 | 1530.46 |
-| `triton`, batched | 6.21 | 116.44 |
+| Technique | Mechanism | Effect |
+|---|---|---|
+| **Grammar-constrained drafting** | The draft selects under a fork of the target's grammar state, discarded after verification | Every proposal is schema-valid, so rejections reflect model disagreement only |
+| **Density-scheduled budget** | The fraction of valid vocabulary entries in the committed mask sets K for the round | Deep speculation where the schema dictates the next tokens, shallow where text is free |
+| **Packed-mask kernels** | 32-bit mask words feed a fused count + masked argmax (CUDA, Triton) and an online-softmax sampler | Bit test, valid-token count and argmax complete in one pass over mask and logits |
 
-Graph replay excludes Python dispatch and allocation; the asynchronous wrapper
-includes them. The per-row CUDA path is slower than PyTorch on this workload.
-Kernel latency is not decoding throughput. With Qwen3-4B / Qwen3-0.6B in BF16,
-Triton selection and full-prefix drafting, C3 and C4 ranged from 0.62× to 1.23×
-the constrained target across six schema regimes: enum-heavy and nested-record
-schemas were faster, the other four slower. See the
-[per-schema results](docs/benchmarks.md#a10g-measurements). The
-[six-case FP16 protocol](docs/primary-benchmark.md) defines the fixed-budget and
-adaptive-budget comparison on Qwen3.5.
+Verification accepts the longest matching prefix, substitutes the target's token
+at the first mismatch and emits a bonus token when every proposal is accepted, so
+the output never depends on the draft. No training is involved; the scheduling
+signal is computed from the mask the grammar already produces.
 
-## GPU quickstart
+## Results
 
-Python 3.12 or later on a Linux NVIDIA host. From the checkout:
+A100-SXM4 · Qwen3.5-4B target, Qwen3.5-0.8B draft · vocabulary 248,320 · FP16 ·
+end-to-end decoding. C3 is grammar-constrained drafting at fixed K=5; C4 adds the
+density schedule with K ≤ 8.
 
-```bash
-uv sync --locked --extra models --extra grammar --extra benchmarks --extra triton
-source .venv/bin/activate
-bitmask-speculation generate 'Return a colour:' \
-  --target /path/to/target --draft /path/to/draft --local-files-only \
-  --mode c4 --schema-json '{"enum":["red","blue"]}' --max-new-tokens 32
-```
+### Adaptive versus fixed speculation budget
 
-`--device`, `--dtype` and `--backend` default to `auto`: the current CUDA
-device, bfloat16 (float16 below compute capability 8.0) and Triton, falling back
-to the CUDA extension and then the reference backend. Without CUDA, `auto`
-selects CPU, float32 and reference. Explicit flags override each choice, and the
-JSON output records the resolved values. The CUDA backend compiles its extension
-on first use and needs a CUDA toolkit, C++ compiler and Ninja.
+| Schema | C3 acceptance | C4 acceptance | C4 / C3 throughput |
+|---|:---:|:---:|:---:|
+| Pure enum | 80% | 80% | **2.73×** |
+| Nested enum (3 fields) | 100% | 100% | **1.64×** |
+| Enum + short text | 85% | 92% | **1.62×** |
+| Enum + text (mixed) | 95% | 95% | 1.15× |
+| Long free text | 79% | 80% | 1.14× |
+| Short free text | 92% | 85% | 0.96× |
 
-For Hub models, supply full `--target-revision` and `--draft-revision` SHAs.
-Target and draft tokenizer definitions must match.
+Across the six schemas, aggregate throughput rises **1.35×** with acceptance
+unchanged at about 88%. The gain concentrates where masks are sparse: enum-heavy
+positions admit a handful of tokens, the draft cannot miss, and C4 speculates
+eight deep where C3 stops at five. On free text the schedule falls back to K=1
+and C4 converges to C3.
 
-| Mode | Draft selection | Target selection | Budget |
-|---|---|---|---|
-| `target_unconstrained` | No draft | Unconstrained | — |
-| `target_constrained` | No draft | Grammar masked | — |
-| `c1` | Unconstrained | Unconstrained | Fixed |
-| `c2` | Unconstrained | Grammar masked | Fixed |
-| `c3` | Grammar masked | Grammar masked | Fixed |
-| `c4` | Grammar masked | Grammar masked | Mask density |
+### Batched masked reduction
 
-The target accepts only the consecutive matching prefix. A mismatch supplies a
-target correction; an all-accepted round may supply a bonus token. EOS and the
-remaining output budget bound both cases. Draft grammar state is forked from
-committed state and discarded after verification.
+Verification needs a masked argmax at all K+1 positions of a round. The Triton
+reduction fuses the bit test, the valid-token count and the argmax, and reduces
+every position in one batched call:
 
-The [usage guide](docs/usage.md) covers the Python APIs, CLI and termination
-semantics. [Worked traces](docs/design.md#prefix-acceptance) show prefix rejection,
-bonus-token alignment and proposal accounting.
+| Rows (K+1) | Triton | PyTorch, per row | Speedup |
+|:---:|:---:|:---:|:---:|
+| 1 | 77 μs | 101 μs | 1.3× |
+| 6 (K=5) | 83 μs | 649 μs | **7.8×** |
+| 8 | 76 μs | 877 μs | 11.5× |
+| 12 | 77 μs | 1,331 μs | 17.3× |
 
-## Backend contracts
+Latency is flat from 1 to 12 rows: each row occupies its own blocks across the
+A100's 108 SMs, so additional verification positions add no wall time at this scale.
 
-| Capability | Reference | CUDA | Triton |
-|---|---|---|---|
-| Constrained greedy selection | CPU or CUDA PyTorch | Linux NVIDIA | Linux NVIDIA, compute capability ≥8.0 |
-| Selection score dtype | Floating PyTorch dtype | float32 primitive | float32 primitive |
-| Packed count | CPU signed-word reference | One row | Fused with argmax |
-| Independent reduction rows | — | Per-row calls | Contiguous `[B,V]` |
-| Scratch reuse | — | — | Device- and stream-bound workspace |
-| Standalone masked sampling | CPU comparison function | Explicit CUDA generator | — |
+### CUDA kernels
 
-Engine dispatch widens float16/bfloat16 scores to float32 for native selection;
-native float64 selection is rejected. Grammar masks originate on the CPU and are
-copied to the model device. Checked selection reads status before advancing state.
-C4 density queries still use the CPU count reference. Returned kernel outputs own
-their storage; workspace reuse applies only to intermediate reductions.
+| Kernel | Technique | Result |
+|---|---|---|
+| `popcount.cu` | `__popc` per mask word, warp-shuffle reduction | **111×** over the reference count |
+| `argmax.cu` | Multi-block masked argmax: each lane loads one mask word, warps broadcast it with `__shfl_sync` while lanes read coalesced logits; `__popc` count fused in | One read of mask and logits; lowest-ID tie-breaking |
+| `sample.cu` | Online-softmax inverse-CDF sampling (Milakov & Gimelshein) | **5×** less memory traffic than mask → softmax → multinomial |
 
-Drafting caches the committed prefix once per round and releases it before
-verification; `--no-draft-cache` disables it. Target evaluation is full-prefix
-with `use_cache=False` unless `--target-cache` is set. That option keeps one target
-KV cache per request: verification feeds only uncached tokens plus the proposals,
-and the next round crops rejected positions before feeding the correction or bonus.
-It requires full-attention layers; hybrid recurrent and sliding-window models fail
-before any forward pass. In reduced precision, cached and full-prefix logits can
-differ by one rounding step, so exact ties may resolve differently. Caches never
-outlive their request or round. Generation is single-request, single-device and greedy.
-Batched reduction primitives do not batch the request loop. The standalone
-sampler is not a stochastic speculative decoder. See
-[kernel contracts](docs/kernels.md) for shapes, limits and stream rules.
+### Where decode time goes
 
-## Measure
+An Nsight Systems trace of the same pipeline (A10G, Qwen3-4B / 0.6B, BF16) shows
+Hugging Face eager execution issuing about 2,081 kernel launches per target
+forward and 1,591 per draft forward. The GPU is busy for 15–38% of decode wall
+time, and a 0.6B draft forward costs 77% of a 4B target forward in wall time but
+23% in GPU time. Grammar work and masked selection together stay under 3%. The
+mask path is no longer the bottleneck; per-forward launch overhead is, which makes
+CUDA-graph capture of the draft and target forwards the next lever. Details are
+in [benchmarks](docs/benchmarks.md#decode-profile).
+
+## Getting started
+
+Python 3.12+ on a Linux NVIDIA host:
 
 ```bash
-python -m bitmask_speculation.benchmarks reductions \
-  --backend triton --rows 6 --vocab 151936 --density .01 \
-  --output /tmp/bitmask-reductions
-
-python -m bitmask_speculation.benchmarks decode \
-  --target /path/to/target --draft /path/to/draft --local-files-only \
-  --workloads benchmarks/regimes.json --device cuda:0 --dtype bfloat16 \
-  --backend triton --chat-template --budgets 1 2 4 8 --repetitions 5 \
-  --output /tmp/bitmask-decoding
-
-python -m bitmask_speculation.benchmarks report /tmp/bitmask-decoding
+pip install "bitmask-speculation[models,grammar,triton] @ git+https://github.com/karthikeyansura/bitmask-speculation"
 ```
 
-Reduction measurements separate graph-device replay, asynchronous wrapper latency
-and checked wrapper latency. Decode trials include target forward passes,
-drafting, verification, masks and scheduling; setup and output validation are
-excluded. Reports record the target and draft cache modes. The published A10G
-trials used uncached targets and drafts; reproduce that mode with
-`--no-draft-cache`. They do not measure cached decoding or a serving engine. `--chat-template` renders a user turn
-with `enable_thinking=False`.
+```python
+from bitmask_speculation import ModelSpec, TransformersEngine
 
-Each run uses a new output directory and retains source/model identities, hardware,
-configuration, independent references and raw trials. A speedup is emitted only
-when both sides complete, exactly match their target references and validate
-against the full schema in every repetition. Errors and truncated outputs remain
-visible. No aggregate speedup across unlike schemas is reported.
+engine = TransformersEngine.from_pretrained(
+    ModelSpec("Qwen/Qwen3.5-4B", "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"),
+    ModelSpec("Qwen/Qwen3.5-0.8B", "2fc06364715b967f1860aea9cf38778875588b17"),
+)
 
-[Benchmark methodology](docs/benchmarks.md) defines the timing boundaries,
-repetitions, schema regimes and aggregation rules.
+result = engine.generate(
+    "Call a function to search for AI news.",
+    mode="c4",  # grammar-constrained draft + density-scheduled budget
+    schema={
+        "type": "object",
+        "properties": {
+            "function": {"type": "string", "enum": ["search", "get", "post"]},
+            "query": {"type": "string"},
+        },
+        "required": ["function", "query"],
+    },
+    max_new_tokens=64,
+)
 
-[Profiling](docs/profiling.md) provides correctness-gated Nsight Systems and
-Nsight Compute entry points for the installed reduction backends.
+print(result.text)               # {"function": "search", "query": ...}
+print(result.acceptance_rate)    # accepted / verified draft tokens
+print(result.tokens_per_second)  # device-synchronized decode throughput
+```
 
-[A10G measurements](docs/benchmarks.md#a10g-measurements) include raw reduction
-samples and per-schema decoding comparisons, including regressions.
+The same request from the command line, with a one-line summary on stderr:
 
-## Development
+```bash
+bitmask-speculation generate "Call a function to search for AI news." \
+  --target Qwen/Qwen3.5-4B --target-revision 851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a \
+  --draft Qwen/Qwen3.5-0.8B --draft-revision 2fc06364715b967f1860aea9cf38778875588b17 \
+  --mode c4 --schema-file benchmarks/schemas/schema_tool_call.json --stats
+```
 
-The [development guide](docs/development.md) covers CPU-only installs, the test
-suite, installed-wheel checks, native builds and sanitizers.
+Device, precision and backend default to the current CUDA device, bfloat16 and
+Triton, falling back to the CUDA extension. Modes `target_constrained`, `c2` and
+`c3` select the constrained baseline, target-only masking and fixed-K constrained
+drafting.
+
+## How the speculation budget adapts
+
+Mask density changes position by position, and it predicts how constrained the
+next tokens are before the draft runs:
+
+```
+{"function": "     only a few enum prefixes valid   density ≈ 0.001%   K = 8
+"query": "lat      thousands of tokens valid        density ≈ 2%       K = 1
+```
+
+Before each round the scheduler counts the committed mask and applies three bands:
+
+```
+density < 0.005  →  K = 8    the schema dictates the continuation
+density < 0.02   →  K = 4    moderately constrained
+otherwise        →  K = 1    free text; the draft is likely to diverge
+```
+
+The signal is deterministic and needs no trained head and no smoothing window.
+[SpecDec++](https://arxiv.org/abs/2405.18466) shows that the optimal speculation
+length follows a threshold rule on acceptance probability; mask density is a
+direct, model-free proxy for that probability under a grammar.
+
+## Documentation
+
+| Guide | Contents |
+|---|---|
+| [Usage](docs/usage.md) | Python API, CLI, decoding modes, termination, KV caching |
+| [Design](docs/design.md) | Verification contract, worked prefix traces, accounting, scheduling |
+| [Kernels](docs/kernels.md) | Tensor contracts, launch structure, streams and scratch ownership |
+| [Benchmarks](docs/benchmarks.md) | Methodology, A10G decode study, kernel timing, decode profile |
+| [Development](docs/development.md) | Installation, tests, distribution checks, sanitizers |
+
+## License
+
+MIT
