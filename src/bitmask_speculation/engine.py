@@ -1,7 +1,7 @@
 """Reusable request facade over the reference decoding functions."""
 
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .decoding import (
     DensityPolicy, GreedyResult, ProposalAccounting, RoundSchedule,
@@ -20,6 +20,24 @@ class GenerationResult:
     accounting: ProposalAccounting | None = None
     schedule: tuple[RoundSchedule, ...] = ()
     text: str | None = None
+    decode_seconds: float | None = field(default=None, compare=False)
+
+    @property
+    def acceptance_rate(self) -> float | None:
+        """Accepted / verified draft tokens; None without speculation."""
+        return None if self.accounting is None else self.accounting.acceptance_rate
+
+    @property
+    def proposal_yield(self) -> float | None:
+        """Accepted / proposed draft tokens; None without speculation."""
+        return None if self.accounting is None else self.accounting.proposal_yield
+
+    @property
+    def tokens_per_second(self) -> float | None:
+        """Content tokens per second of synchronized decode time."""
+        if not self.decode_seconds:
+            return None
+        return len(self.generation.token_ids) / self.decode_seconds
 
     @property
     def token_ids(self) -> tuple[int, ...]:

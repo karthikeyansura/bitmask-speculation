@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 import re
+import time
 
 from ..engine import CONSTRAINED_MODES, MODES, DecodingEngine, GenerationResult
 
@@ -161,14 +162,23 @@ class TransformersEngine:
             raise ValueError("max_new_tokens must be a nonnegative integer")
         grammar_factory = None if schema is None else self.prepare_grammar(schema)
         tokens = self.tokenizer.encode(prompt, add_special_tokens=True)
+        self._synchronize()
+        start = time.perf_counter()
         result = self.decoder.generate(
             tokens, max_new_tokens=max_new_tokens, mode=mode,
             eos_token_ids=self.eos_token_ids, grammar_factory=grammar_factory,
             draft_budget=draft_budget, draft_policy=draft_policy,
         )
-        return replace(result, text=self.tokenizer.decode(
+        self._synchronize()
+        elapsed = time.perf_counter() - start
+        return replace(result, decode_seconds=elapsed, text=self.tokenizer.decode(
             list(result.token_ids), skip_special_tokens=False, clean_up_tokenization_spaces=False,
         ))
+
+    def _synchronize(self) -> None:
+        if self.device.startswith("cuda"):
+            import torch
+            torch.cuda.synchronize(self.device)
 
     def prepare_grammar(self, schema: str | dict | bool):
         """Compile once and return a factory creating independent matcher states."""

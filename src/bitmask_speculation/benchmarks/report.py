@@ -61,3 +61,31 @@ def report_directory(path):
     return {'version': 1, 'aggregation': 'per-case ratios of total matched-run latency; no cross-case average',
             'cases': [compare_case(records, budgets=config['budgets'], repetitions=config['repetitions'])
                       for records in cases.values()]}
+
+
+def _cell(value, spec):
+    return '-' if value is None else format(value, spec)
+
+
+def format_report(report):
+    """Render per-case tables: exactness, acceptance, yield, throughput and ratios."""
+    lines = []
+    for case in report['cases']:
+        execution = ', '.join(f'{k}={v}' for k, v in case['execution'].items())
+        lines += [f"{case['case_id']}" + (f'  ({execution})' if execution else ''),
+                  f"  {'configuration':<22}{'exact':>7}{'accept':>8}{'yield':>8}{'tok/s':>8}{'vs target':>11}"]
+        rows = {(row['variant'], row['draft_budget']): row for row in case['configurations']}
+        for row in case['configurations']:
+            name = row['variant'] + ('' if row['draft_budget'] is None else f" K={row['draft_budget']}")
+            exact = f"{row['exact_matches']}/{row['trials']}"
+            speedup = row['latency_speedup']
+            ratio = '' if row['variant'].startswith('target_') else '-' if speedup is None else f'{speedup:.3f}x'
+            lines.append(f"  {name:<22}{exact:>7}{_cell(row['acceptance_rate'], '.2f'):>8}"
+                         f"{_cell(row['proposal_yield'], '.2f'):>8}"
+                         f"{_cell(row['observed_tokens_per_second'], '.1f'):>8}{ratio:>11}")
+        c4 = rows.get(('c4', None))
+        for (variant, budget), c3 in sorted((key, row) for key, row in rows.items() if key[0] == 'c3'):
+            if c4 and c3['speedup_eligible'] and c4['speedup_eligible']:
+                lines.append(f"  C4/C3 K={budget}: {c3['decode_seconds'] / c4['decode_seconds']:.3f}x")
+        lines.append('')
+    return '\n'.join(lines).rstrip() + '\n'

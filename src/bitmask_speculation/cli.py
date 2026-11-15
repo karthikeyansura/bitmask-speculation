@@ -50,7 +50,23 @@ def parser():
     generate.add_argument("--target-cache", action="store_true",
                           help="cache target keys/values across rounds instead of recomputing prefixes")
     generate.add_argument("--output-format", choices=("json", "text"), default="json")
+    generate.add_argument("--stats", action="store_true",
+                          help="print tokens, rounds, acceptance and throughput to stderr")
     return root
+
+
+def _rate(value, digits=2):
+    return "n/a" if value is None else f"{value:.{digits}f}"
+
+
+def summary(mode, result) -> str:
+    """One-line request summary: mode, tokens, rounds, acceptance, yield, tok/s."""
+    parts = [mode, f"{len(result.token_ids)} tokens", f"stop={result.stop_reason}"]
+    if result.accounting is not None:
+        parts += [f"{result.accounting.rounds} rounds", f"acceptance {_rate(result.acceptance_rate)}",
+                  f"yield {_rate(result.proposal_yield)}"]
+    parts.append(f"{_rate(result.tokens_per_second, 1)} tok/s")
+    return " | ".join(parts)
 
 
 def main(argv=None) -> int:
@@ -95,7 +111,11 @@ def main(argv=None) -> int:
                 "stop_reason": result.stop_reason, "eos_token_id": result.eos_token_id,
                 "accounting": None if result.accounting is None else asdict(result.accounting),
                 "schedule": [asdict(item) for item in result.schedule],
+                "acceptance_rate": result.acceptance_rate, "proposal_yield": result.proposal_yield,
+                "decode_seconds": result.decode_seconds, "tokens_per_second": result.tokens_per_second,
             }, allow_nan=False))
+        if args.stats:
+            print(summary(args.mode, result), file=sys.stderr)
         return 0
     except (OSError, ValueError, TypeError, RuntimeError, ImportError) as exc:
         print(f"bitmask-speculation: {exc}", file=sys.stderr)

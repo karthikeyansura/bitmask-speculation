@@ -100,3 +100,27 @@ def test_target_cache_option_reaches_loader(tmp_path, fake_loader, capsys, cache
     options = ['--target-cache'] if cached else []
     assert cli.main(base(tmp_path) + options) == 0
     assert fake_loader[0][2]['target_cache'] is cached
+
+
+def test_stats_line_and_json_rates(tmp_path, monkeypatch, capsys):
+    from bitmask_speculation.decoding import ProposalAccounting
+    class Engine:
+        device, dtype, backend = 'cuda:0', 'bfloat16', 'triton'
+        def generate(self, prompt, **kwargs):
+            return GenerationResult(GreedyResult((1, 2, 3, 4), 'eos', 9),
+                                    ProposalAccounting(proposed=8, verified=5, accepted=4, emitted=4, rounds=2),
+                                    text='abcd', decode_seconds=0.5)
+    monkeypatch.setattr(cli.TransformersEngine, 'from_pretrained', lambda *a, **k: Engine())
+    path = tmp_path / 'schema.json'; path.write_text('{"enum":["a"]}')
+    args = base(tmp_path) + ['--draft', str(tmp_path), '--mode', 'c3', '--schema-file', str(path), '--stats']
+    assert cli.main(args) == 0
+    output = capsys.readouterr(); data = json.loads(output.out)
+    assert data['acceptance_rate'] == 0.8 and data['proposal_yield'] == 0.5
+    assert data['decode_seconds'] == 0.5 and data['tokens_per_second'] == 8.0
+    assert output.err.strip() == 'c3 | 4 tokens | stop=eos | 2 rounds | acceptance 0.80 | yield 0.50 | 8.0 tok/s'
+
+
+def test_target_only_result_has_no_rates():
+    result = GenerationResult(GreedyResult((1,), 'eos', 2))
+    assert result.acceptance_rate is None and result.proposal_yield is None and result.tokens_per_second is None
+    assert cli.summary('target_constrained', result) == 'target_constrained | 1 tokens | stop=eos | n/a tok/s'

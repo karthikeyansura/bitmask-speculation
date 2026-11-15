@@ -49,6 +49,7 @@ def parser():
     profile.add_argument('--output', required=True)
     report = commands.add_parser('report', help='recompute comparisons from completed raw trials')
     report.add_argument('run_directory')
+    report.add_argument('--json', action='store_true', help='print the full comparison record')
     return root
 
 
@@ -64,8 +65,12 @@ def main(argv=None):
             run_profile(args)
         elif args.command == 'report':
             import json
-            from .report import report_directory
-            print(json.dumps(report_directory(args.run_directory), indent=2, allow_nan=False))
+            from .report import format_report, report_directory
+            result = report_directory(args.run_directory)
+            if args.json:
+                print(json.dumps(result, indent=2, allow_nan=False))
+            else:
+                print(format_report(result), end='')
         else:
             from .decoding import run_decoding
             run_decoding(args)
