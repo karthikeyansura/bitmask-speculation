@@ -1,0 +1,6 @@
+# Language statistics describe the library and its kernels; the test suite
+# and the measurement harness are excluded.
+tests/** linguist-detectable=false
+src/bitmask_speculation/benchmarks/** linguist-detectable=false
+src/bitmask_speculation/benchmarking.py linguist-detectable=false
+src/bitmask_speculation/budget_sweep.py linguist-detectable=false
