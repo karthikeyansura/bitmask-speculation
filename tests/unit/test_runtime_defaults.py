@@ -75,20 +75,21 @@ def test_unknown_dtype_rejected():
 
 def test_auto_backend_cpu_is_reference(fake_cuda, monkeypatch):
     monkeypatch.setattr(dispatch, 'triton_available', lambda device: pytest.fail('CPU must not probe Triton'))
+    monkeypatch.setattr(dispatch, 'cuda_extension_available', lambda: pytest.fail('CPU must not probe CUDA'))
     assert dispatch.resolve_backend('auto', torch.device('cpu')) == 'reference'
 
 
-def test_auto_backend_prefers_triton(fake_cuda, monkeypatch):
+def test_auto_backend_prefers_cuda_extension(fake_cuda, monkeypatch):
+    monkeypatch.setattr(dispatch, 'cuda_extension_available', lambda: True)
+    monkeypatch.setattr(dispatch, 'triton_available', lambda device: pytest.fail('CUDA wins first'))
+    assert dispatch.resolve_backend('auto', torch.device('cuda', 0)) == 'cuda'
+
+
+def test_auto_backend_falls_back_to_triton(fake_cuda, monkeypatch):
+    monkeypatch.setattr(dispatch, 'cuda_extension_available', lambda: False)
     monkeypatch.setattr(dispatch, 'triton_available', lambda device: True)
-    monkeypatch.setattr(dispatch, 'cuda_extension_available', lambda: pytest.fail('Triton wins first'))
     monkeypatch.setattr('bitmask_speculation.kernels.triton.require_device', lambda device: None)
     assert dispatch.resolve_backend('auto', torch.device('cuda', 0)) == 'triton'
-
-
-def test_auto_backend_falls_back_to_cuda(fake_cuda, monkeypatch):
-    monkeypatch.setattr(dispatch, 'triton_available', lambda device: False)
-    monkeypatch.setattr(dispatch, 'cuda_extension_available', lambda: True)
-    assert dispatch.resolve_backend('auto', torch.device('cuda', 0)) == 'cuda'
 
 
 def test_auto_backend_falls_back_to_reference(fake_cuda, monkeypatch):
@@ -100,6 +101,7 @@ def test_auto_backend_falls_back_to_reference(fake_cuda, monkeypatch):
 def test_auto_backend_rocm_is_reference(fake_cuda, monkeypatch):
     monkeypatch.setattr(torch.version, 'hip', '6.0')
     monkeypatch.setattr(dispatch, 'triton_available', lambda device: pytest.fail('ROCm must not probe Triton'))
+    monkeypatch.setattr(dispatch, 'cuda_extension_available', lambda: pytest.fail('ROCm must not probe CUDA'))
     assert dispatch.resolve_backend('auto', torch.device('cuda', 0)) == 'reference'
 
 

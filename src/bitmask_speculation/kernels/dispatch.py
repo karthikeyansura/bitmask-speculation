@@ -39,15 +39,19 @@ def cuda_extension_available() -> bool:
 
 
 def resolve_backend(backend, device) -> str:
-    """Resolve ``auto`` to Triton, else CUDA, else reference; validate the result."""
+    """Resolve ``auto`` to the CUDA extension, else Triton, else reference.
+
+    The extension has the lowest per-call latency in eager decoding; Triton
+    needs no CUDA toolkit at run time. The result is validated either way.
+    """
     import torch
     if backend == 'auto':
         backend = 'reference'
         if device.type == 'cuda' and torch.version.hip is None and torch.cuda.is_available():
-            if triton_available(device):
-                backend = 'triton'
-            elif cuda_extension_available():
+            if cuda_extension_available():
                 backend = 'cuda'
+            elif triton_available(device):
+                backend = 'triton'
     validate_backend(backend, device)
     return backend
 

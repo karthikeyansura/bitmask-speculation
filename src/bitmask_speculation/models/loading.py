@@ -83,8 +83,8 @@ class TransformersEngine:
     prefixes. ``target_cache=True`` keeps one target KV cache per request.
     This single-device greedy engine does not apply chat templates or
     generation-config processors. ``auto`` device, dtype and backend resolve to
-    CUDA, bfloat16/float16 and Triton/CUDA when available; ``device``, ``dtype``
-    and ``backend`` record the resolved choices.
+    CUDA, bfloat16/float16 and the CUDA extension (else Triton) when available;
+    ``device``, ``dtype`` and ``backend`` record the resolved choices.
     """
 
     @classmethod

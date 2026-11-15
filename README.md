@@ -143,7 +143,7 @@ bitmask-speculation generate "Call a function to search for AI news." \
 ```
 
 Device, precision and backend default to the current CUDA device, bfloat16 and
-Triton, falling back to the CUDA extension. Modes `target_constrained`, `c2` and
+the CUDA extension, falling back to Triton when no CUDA toolkit is present. Modes `target_constrained`, `c2` and
 `c3` select the constrained baseline, target-only masking and fixed-K constrained
 drafting.
 
