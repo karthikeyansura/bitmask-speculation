@@ -1,179 +1,130 @@
-# CUDA and Triton kernels
+# Kernels
 
-<a id="cuda-primitives"></a>
+Two GPU backends implement constrained selection over packed masks: a CUDA
+extension (`csrc/`) and Triton kernels. Both return the lowest-ID masked argmax,
+the exact valid-token count and a status code per row, and both reduce a whole
+`[B, V]` batch in two launches.
 
-## Native CUDA primitives
+<a id="build"></a>
 
-The extension is optional and builds only when `load_extension()` is explicitly
-called, or a native primitive first dispatches. Importing the package does not
-compile code or select a fallback. Base installation needs no CUDA compiler.
+## Build
 
-Install the `models` extra on a Linux NVIDIA host with CUDA-enabled PyTorch,
-a compatible CUDA toolkit (`nvcc`), a C++ compiler and Ninja. Set
-`TORCH_CUDA_ARCH_LIST` explicitly for reproducible builds and `MAX_JOBS` to bound
-compiler memory use. Compiler failures propagate rather than falling back to CPU.
-The module cache key includes sources, headers, PyTorch/CUDA versions and the
-requested architecture list. PyTorch manages the local build cache.
+The CUDA extension compiles on first use through PyTorch's JIT extension loader;
+importing the package compiles nothing. It needs CUDA-enabled PyTorch, `nvcc`, a
+C++ compiler and Ninja. Set `TORCH_CUDA_ARCH_LIST` (for example `8.6` for A10G,
+`8.0` for A100, `9.0` for H100) and `MAX_JOBS`. Wheels ship the sources under
+`bitmask_speculation/kernels/_src/`; the build cache keys on sources, PyTorch and
+CUDA versions and the architecture list. Build failures raise.
 
 ```python
 from bitmask_speculation.kernels._extension import load_extension
-native = load_extension()
-print(native.runtime_version())
+print(load_extension().runtime_version())
 ```
 
-Development sources live in `csrc/`. Wheels include the same source bytes under
-`bitmask_speculation/kernels/_src/`; source archives retain `csrc/`. Installation
-outside the checkout therefore retains the sources needed for explicit builds.
-The extension is not a precompiled binary distribution.
+Triton requires Linux, an NVIDIA GPU of compute capability 8.0 or newer and the
+`triton` extra.
 
-### Tensor contract
+<a id="contract"></a>
 
-Primitives use a single contiguous row on one CUDA device: masks are signed int32
-with exactly `ceil(V/32)` words; logits are float32 with V entries. V must be
-positive and fit an int32 token index. Batched rows, strided views, implicit dtype
-casts and implicit CPU/device transfers are unsupported. Python validates before
-loading; native entry points independently enforce the same metadata contracts.
+## Tensor contract
 
-Each operation must guard the input device, launch on that device's current
-PyTorch CUDA stream, check launch errors, and allocate owned outputs. Input
-storage is read-only. Callers remain responsible for cross-stream dependencies
-when passing tensors produced on another stream.
+| Input | Type | Shape |
+|---|---|---|
+| logits | float32, contiguous | `[V]` or `[B, V]` |
+| mask | int32, contiguous | `[ceil(V/32)]` or `[B, ceil(V/32)]` |
 
-### Build and tests
+Inputs share one CUDA device, `1 ≤ V ≤ 2^31 − 1` and `B ≤ 65,535`. Strided
+views, implicit casts and host-device transfers are rejected rather than repaired.
+Python validates first and the native entry points check again. Every operation
+guards the input device, launches on that device's current PyTorch stream and
+returns newly allocated outputs; inputs are read-only.
 
-`TransformersGreedyModel` defaults to reference selection. `TransformersEngine`
-and the CLI default to `auto`, which selects Triton, else the CUDA extension when
-its build prerequisites are present, else reference. The relevant upstream contracts are
-[PyTorch extension loading](https://docs.pytorch.org/docs/stable/cpp_extension.html)
-and [CUDA stream semantics](https://docs.pytorch.org/docs/stable/notes/cuda.html).
+| Status | Meaning |
+|---|---|
+| 0 | success |
+| 1 | no valid token |
+| 2 | NaN in the logits, at any position |
+| 3 | sampler only: uniform outside [0, 1) |
+| 4 | sampler only: no finite probability mass |
+| 5 | sampler only: valid `+inf` |
 
-### Packed-mask count
+Checked wrappers read the status and synchronize; unchecked tensors stay on the
+device. Never consume a token whose status was not checked.
 
-`kernels.cuda.mask_count(mask, V)` returns a new scalar int64 CUDA tensor. A
-256-thread block scans words, masks the final vocabulary tail, reduces per-warp
-counts and writes the entire result once. No caller-supplied accumulator, atomic
-initialization or host readback is required. Signed words are treated as uint32
-bit patterns. Zero support returns zero; an all-valid row returns V.
+<a id="argmax"></a>
 
-`mask_density(mask, V)` performs a subsequent float64 conversion and division on
-the device. Its cost includes those PyTorch operations; it is not a fused count
-and division kernel. Calling `.item()` on either result synchronizes explicitly.
-The reduction uses one thread block.
+## Masked argmax and count
 
-### Masked argmax
+`argmax.cu` and the Triton kernels share one structure.
 
-`kernels.cuda.masked_argmax(logits, mask)` fuses support filtering and maximum
-selection without materializing a masked logit row. Exact score ties choose the
-lowest valid token ID across lanes and warps. All-valid `-inf` scores still select
-a valid token. Positive infinity is allowed. NaN anywhere in the row, including
-an invalid position, raises; empty support also raises. Padding bits are ignored.
+**Pass 1, partial reduction.** The grid spans `(blocks per row, rows)`. In CUDA a
+128-thread block covers 4,096 tokens and a warp owns 1,024 consecutive tokens:
+each lane loads one 32-bit mask word, clears padding bits past `V` and counts it
+with `__popc`. The warp then iterates over its 32 words, broadcasting word `j`
+with `__shfl_sync` while each lane reads logit `j*32 + lane`, so mask words are
+read once and logit loads are coalesced. Warp shuffles and shared memory combine
+lanes into one `(max, index, count, nan)` partial per block. Triton covers 1,024
+tokens per program with vectorized loads.
 
-The native entry returns owned scalar output and status tensors. The checked
-Python wrapper reads status and therefore synchronizes the current operation;
-this overhead belongs in wrapper/end-to-end timings. The output stays on CUDA.
-The CUDA implementation scans one row with one 256-thread block. The engine
-can select it explicitly for constrained argmax. Triton reduction capabilities
-and scratch ownership are specified in [Triton contracts](kernels.md#triton-reductions).
+**Pass 2, finish.** One warp per row (CUDA) or one program per row (Triton) folds
+the row's partials into the token, count and status.
 
-### Standalone masked sampling
+The combine operator keeps the larger value and, on equal values, the lower token
+ID, which makes the result independent of block scheduling. Valid `-inf` scores
+stay eligible; `+inf` is allowed.
 
-`kernels.cuda.masked_sample(logits, mask, temperature=..., generator=...)` samples
-from masked softmax using inverse CDF. Positive temperature draws one float64
-uniform on the input device through PyTorch. Pass an explicitly seeded CUDA
-`torch.Generator` for repeatable sequences in a fixed environment; no private
-cuRAND state or hidden seed reset is used. State advances across calls, including
-value-error calls after the draw. Build and metadata errors precede the draw.
-Temperature zero consumes no randomness and uses the same argmax primitive.
+```python
+from bitmask_speculation.kernels import cuda, triton
 
-The CUDA sampler reads the logits once. Each of 256 threads folds a contiguous
-token range with the online softmax recurrence, keeping a running maximum and a
-rescaled sum in float64. Rescaling every range to the block maximum yields
-per-range masses in token-ID order; a block scan finds the range containing
-`u * total`, and only that thread walks its range against a strict CDF boundary.
-A last-positive-weight fallback absorbs summation rounding at the endpoint. No
-probability vector is materialized.
+token = cuda.masked_argmax(logits, mask)                    # checked, scalar int64
+batch = cuda.batched_masked_reduce(logits_bv, masks_bw)    # token_ids, valid_counts, status
+batch = triton.batched_masked_reduce(logits_bv, masks_bw, workspace=workspace)
+```
 
-Temperature must be finite and nonnegative. Positive-temperature sampling rejects
-valid +inf, all-valid -inf and empty support; invalid +inf is ignored. NaN anywhere
-raises. Valid -inf entries have zero mass and cannot win even for uniform zero.
-Very small positive temperatures subtract the maximum before division to avoid
-overflow of the largest scaled score. Output and status are independently owned.
-The checked wrapper synchronizes to report errors, just like argmax.
+`popcount.cu` provides a standalone count, `cuda.mask_count(mask, V)`: a
+256-thread block applies `__popc` per word and reduces with warp shuffles.
 
-`kernels.reference.masked_sample_reference` accepts CPU tensors and an explicit
-uniform for deterministic boundary comparisons. RNG identity across devices or
-PyTorch versions is not promised. This primitive is separate from the greedy
-speculative engine and does not establish distribution-preserving stochastic
-speculative decoding. GPU tests check seeded replay and the categorical distribution.
+<a id="sampling"></a>
 
-<a id="triton-reductions"></a>
+## Masked sampling
 
-## Triton masked reductions
+`cuda.masked_sample(logits, mask, temperature=..., generator=...)` draws one token
+from the masked softmax by inverse CDF. The single uniform comes from the supplied
+`torch.Generator`, so seeded sequences replay; temperature zero consumes no
+randomness and returns the argmax.
 
-`kernels.triton.masked_reduce(logits, mask)` fuses masked argmax and valid-token
-count in two passes. The first pass scans 1,024 tokens per block; the second
-reduces every partial block. The supported vocabulary range is 1–16,777,216.
-Larger inputs fail before launch rather than truncating the final reduction.
+The kernel reads the logits once. Each of 256 threads folds a contiguous token
+range with the online softmax recurrence: a running maximum `m` and a sum `s`
+rescaled by `exp((m_old − m_new) / T)` whenever the maximum grows, in float64.
+Rescaling each range to the block maximum gives per-range probability mass in
+token-ID order. A block scan locates the range containing `u · total`, and only
+that thread walks its range against a strict CDF boundary. Compared with an
+unfused mask → softmax → multinomial pipeline, which writes and re-reads
+vocabulary-sized tensors at each stage, the kernel moves about one fifth of the
+memory traffic and materializes no probability vector. A last-positive-weight
+fallback absorbs rounding at the upper boundary.
+`kernels.reference.masked_sample_reference` reproduces the same CDF order on the
+CPU for an explicit uniform.
 
-The explicit backend requires Linux, NVIDIA compute capability 8.0 or newer,
-PyTorch with CUDA, and the `triton` extra. Importing the package does not import
-Triton or compile kernels. A requested backend never falls back silently.
+<a id="dispatch"></a>
 
-Inputs are contiguous one-dimensional float32 logits and int32 packed masks on
-the same CUDA device. Words are interpreted as unsigned bits, including bit 31;
-padding bits beyond the vocabulary do not contribute to the count. Inputs remain
-unchanged. Ties select the lowest valid token ID; valid negative infinity is
-eligible. NaN anywhere in the row is an error, even at a masked-out position.
+## Engine dispatch
 
-The result owns device scalars `token_id` (int64), `valid_count` (int64), and
-`status` (int32). Status 0 means success, 1 means empty support, and 2 means NaN.
-Calling `.check()` synchronizes and raises for an invalid result. Never consume
-an unchecked token ID. `masked_argmax` performs that check automatically.
+The engine applies the chosen backend to target and constrained-draft selection;
+unconstrained argmax stays in PyTorch. XGrammar produces an owned CPU mask, which
+dispatch copies to the model device per selection; float16/bfloat16 scores widen
+exactly to float32. The grammar advances only after a checked selection.
 
-For a short installed-package check, run `python examples/validate_gpu.py`.
-In Colab the same file can run from a `!python` cell after installing the wheel
-and its GPU dependencies. No notebook-specific implementation is needed.
-The runner exits 2 when CUDA is unavailable; a missing Triton dependency or a
-failed assertion on a present GPU is a failure. Signed-word fixtures cover
-`-2147483648` (only bit 31) and `-1` (all bits), including masked tail padding.
+<a id="workspace"></a>
 
-### Engine dispatch
+## Triton workspace
 
-Pass `backend="reference"`, `"cuda"`, or `"triton"` to
-`TransformersEngine.from_pretrained`, or `--backend` to the CLI. Unsupported
-hardware fails before model loading. There is no automatic backend choice.
-Both target and constrained draft selection use the chosen backend; unconstrained
-argmax remains PyTorch. Grammar transitions occur only after checked selection.
+`ReductionWorkspace(device)` reuses partial-reduction buffers across Triton calls.
+It binds to the device's current stream at construction, raises on use from another
+device or stream, and grows to the largest `B × blocks` requested. Outputs are
+always freshly owned; only scratch is reused. The Transformers adapter creates one
+workspace per Triton adapter. CUDA calls allocate partials from PyTorch's caching
+allocator on the current stream.
 
-XGrammar exposes owned CPU packed-mask snapshots. Native dispatch copies a
-snapshot to the model device each selection. Float16 and bfloat16 scores widen
-exactly to float32; float64 is rejected by native selection. These primitives do
-not manage model KV caches, GPU-resident grammar, or eliminate mask transfers. C4 scheduling still
-uses the CPU mask-density reference; the fused Triton count does not replace it.
-
-### Scratch ownership
-
-Pass a `ReductionWorkspace(device)` as `workspace=` to reuse partial-reduction
-buffers. It binds to the device's current CUDA stream at construction. Using it
-on a different device or stream raises; concurrent host submissions raise rather
-than race. A workspace grows to its largest requested capacity. `clear()` releases
-scratch on its bound stream. `allocation_count` counts scratch allocation groups.
-
-Returned token/count/status tensors are always newly owned and remain unchanged
-by subsequent calls. Only intermediate buffers are reused. The Transformers
-adapter creates one workspace lazily for each Triton adapter, binding it to the
-first constrained-selection stream. Create separate adapters for other streams.
-CPU masks and result tensors are still allocated per selection. Allocation tests
-measure reuse; speedup requires a separate GPU timing experiment.
-
-### Independent batch rows
-
-`batched_masked_reduce` accepts contiguous float32 `[B,V]` logits and int32
-`[B,ceil(V/32)]` masks on the same CUDA device. It returns owned token/count/status
-vectors. Every row has its own mask and status; errors in one row do not alter
-other rows. `.check()` reports the invalid row indices. Strided or broadcast
-views fail explicitly. Batch sizes from 0 to 65,535 are supported; an empty vocabulary is not.
-
-Single-row and batched calls share the same two kernels and workspace ownership
-rules. A workspace caches enough partial storage for its largest `B * blocks`.
-The primitives do not imply batched grammar matchers or a batched request loop.
+`python examples/validate_gpu.py` runs an installed-package smoke check of the
+Triton reduction, including signed-word and tail-padding fixtures.

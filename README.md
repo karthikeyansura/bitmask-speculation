@@ -84,7 +84,7 @@ A100's 108 SMs, so additional verification positions add no wall time at this sc
 | Kernel | Technique | Result |
 |---|---|---|
 | `popcount.cu` | `__popc` per mask word, warp-shuffle reduction | **111×** over the reference count |
-| `argmax.cu` | Multi-block masked argmax: each lane loads one mask word, warps broadcast it with `__shfl_sync` while lanes read coalesced logits; `__popc` count fused in | One read of mask and logits; lowest-ID tie-breaking |
+| `argmax.cu` | Multi-block masked argmax: each lane loads one mask word, warps broadcast it with `__shfl_sync` while lanes read coalesced logits; `__popc` count fused in | 6× faster per call than Triton and 24× faster than PyTorch at 6 rows (A10G) |
 | `sample.cu` | Online-softmax inverse-CDF sampling (Milakov & Gimelshein) | **5×** less memory traffic than mask → softmax → multinomial |
 
 ### Where decode time goes

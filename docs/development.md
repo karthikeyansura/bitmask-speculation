@@ -1,76 +1,53 @@
 # Development
 
-Python 3.12 or later. The distribution name is `bitmask-speculation`; the Python
-import is `bitmask_speculation`. Source lives under `src/`, native build inputs
-under `csrc/`, workload data under `benchmarks/`, and tests under `tests/`.
+Python 3.12+. The distribution is `bitmask-speculation` and the import is
+`bitmask_speculation`. Sources live in `src/`, CUDA sources in `csrc/`, workload
+manifests and recorded results in `benchmarks/`, tests in `tests/`.
 
-## Installation and CPU tests
+## Install and test
 
 ```bash
 uv sync --locked --extra models --extra grammar --extra benchmarks
-uv run --locked --extra models --extra grammar --extra benchmarks pytest -q
+uv run --locked pytest -q
 ```
 
-`uv sync` installs the package in editable mode and includes the development
-requirements. The base package has no runtime dependencies. Extras select
-PyTorch/Transformers (`models`), XGrammar (`grammar`), JSON Schema validation
-(`benchmarks`) and the Linux NVIDIA Triton backend (`triton`). Tests use locally
-constructed models; they do not download pretrained weights. GPU tests skip on
-hosts without CUDA. A build failure on a CUDA host is a test failure.
-
-On a CPU-only host, omit the `triton` extra. Generation with `auto` device, dtype
-and backend then runs on the CPU in float32 with reference selection; tests pin
-CPU execution explicitly where they compare against CPU references.
-
-## Distribution checks
-
-```bash
-uv run --locked python -m build
-uv venv --python 3.12 /tmp/bitmask-wheel-check
-uv pip install --python /tmp/bitmask-wheel-check/bin/python \
-  dist/bitmask_speculation-0.1.0.dev0-py3-none-any.whl
-cd /tmp
-/tmp/bitmask-wheel-check/bin/python -I -c \
-  "import bitmask_speculation as bs; print(bs.__version__, bs.__file__)"
-```
-
-Use a fresh verification directory. Build first produces an sdist, then builds
-the wheel from that sdist. Wheels include Python code and native source files
-under `kernels/_src`; the optional extension compiles when explicitly loaded.
-The source archive also contains guides, tests, examples and workload manifests.
-Run the installed wheel's tests from a separate source archive so imports resolve
-to site-packages. The base import and CLI help require no optional dependencies.
+The base package has no runtime dependencies. Extras add PyTorch and Transformers
+(`models`), XGrammar (`grammar`), JSON Schema validation (`benchmarks`) and Triton
+(`triton`, Linux NVIDIA only). Tests build tiny models locally and download no
+weights; GPU tests skip without CUDA, and a failed CUDA build on a GPU host fails
+the run.
 
 <a id="cuda-tests"></a>
 
-## CUDA tests
+## GPU tests
 
-Use Linux, CUDA-enabled PyTorch, a compatible CUDA toolkit, a C++ compiler and
-Ninja. Add the `triton` extra for Triton checks. Activate the environment so Ninja
-and Python resolve from the same environment. Set the architecture to the device
-being tested; `8.6` below is for A10G.
+On a Linux host with CUDA-enabled PyTorch, `nvcc`, a C++ compiler and Ninja:
 
 ```bash
+uv sync --locked --extra models --extra grammar --extra benchmarks --extra triton
 source .venv/bin/activate
-nvcc --version
-ninja --version
-export TORCH_CUDA_ARCH_LIST=8.6
-export MAX_JOBS=2
-python -c 'from bitmask_speculation.kernels._extension import load_extension; print(load_extension().runtime_version())'
-python -m pytest -ra tests/unit tests/integration tests/gpu
+export TORCH_CUDA_ARCH_LIST=8.6 MAX_JOBS=2   # architecture of the device under test
+python -m pytest -ra tests
 python examples/validate_gpu.py
-compute-sanitizer --tool memcheck --error-exitcode 1 python -m pytest -q tests/gpu/test_popcount.py tests/gpu/test_argmax.py tests/gpu/test_random_masks.py
+compute-sanitizer --tool memcheck --error-exitcode 1 \
+  python -m pytest -q tests/gpu/test_argmax.py tests/gpu/test_cuda_batch.py tests/gpu/test_random_masks.py
 ```
 
-The suite covers signed mask words and tail bits, ties and infinities, invalid
-metadata, NaNs, empty support, seeded sampling, output ownership and non-default
-streams. Two-device guard and workspace-isolation tests need two CUDA devices
-visible in one process; two separate servers cannot execute those checks.
+The GPU suite covers signed words and tail padding, ties and infinities across
+lanes, warps and blocks, NaN and empty-support errors, batched rows with
+independent status, seeded sampling and its CDF boundaries, output ownership and
+non-default streams. Device-guard and workspace-isolation tests need two GPUs
+visible to one process.
 
-## Guides
+## Distribution
 
-- [Decoding and grammar state](design.md)
-- [Generation APIs](usage.md)
-- [CUDA and Triton kernels](kernels.md)
-- [Benchmark methodology](benchmarks.md)
-- [Kernel profiling](profiling.md)
+```bash
+uv run --locked python -m build
+uv venv --python 3.12 /tmp/wheel-check
+uv pip install --python /tmp/wheel-check/bin/python dist/bitmask_speculation-*.whl
+(cd /tmp && /tmp/wheel-check/bin/python -I -c "import bitmask_speculation as bs; print(bs.__version__)")
+```
+
+The sdist builds first and the wheel is built from it. Wheels carry the Python
+package and the CUDA sources; the extension compiles on first use. Run installed
+tests from outside the checkout so imports resolve to site-packages.
