@@ -85,12 +85,13 @@ cuRAND state or hidden seed reset is used. State advances across calls, includin
 value-error calls after the draw. Build and metadata errors precede the draw.
 Temperature zero consumes no randomness and uses the same argmax primitive.
 
-The CUDA sampler first reduces the valid maximum, then reduces exponentiated
-weights, then walks the CDF serially on thread zero. It uses float64 arithmetic
-for normalization and compares a uniform in [0, 1) using a strict CDF boundary.
-A last-positive-weight fallback handles summation rounding at the endpoint.
-There are multiple scans; this is not an online or single-pass softmax algorithm.
-No probability tensor is materialized, but serial CDF cost may dominate.
+The CUDA sampler reads the logits once. Each of 256 threads folds a contiguous
+token range with the online softmax recurrence, keeping a running maximum and a
+rescaled sum in float64. Rescaling every range to the block maximum yields
+per-range masses in token-ID order; a block scan finds the range containing
+`u * total`, and only that thread walks its range against a strict CDF boundary.
+A last-positive-weight fallback absorbs summation rounding at the endpoint. No
+probability vector is materialized.
 
 Temperature must be finite and nonnegative. Positive-temperature sampling rejects
 valid +inf, all-valid -inf and empty support; invalid +inf is ignored. NaN anywhere

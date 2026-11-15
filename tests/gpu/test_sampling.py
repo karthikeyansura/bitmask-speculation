@@ -60,3 +60,18 @@ def test_invalid_uniform_native_status(cuda_module):
             _checked_selection(cuda_module.masked_sample(
                 torch.zeros(1, device="cuda"), torch.ones(1, dtype=torch.int32, device="cuda"), 1.,
                 torch.tensor(uniform, dtype=torch.float64, device="cuda")))
+
+
+@pytest.mark.parametrize("vocab", [4097, 151936])
+def test_large_vocabulary_sampling_matches_reference(cuda_module, vocab):
+    generator = torch.Generator(device="cuda").manual_seed(7)
+    logits = torch.randn(vocab, device="cuda", generator=generator) * 3
+    mask = torch.randint(-2147483648, 2147483647, ((vocab + 31) // 32,), device="cuda",
+                         dtype=torch.int32, generator=generator)
+    mask[0] |= 1
+    for temperature in (0.5, 1.0, 4.0):
+        for uniform in (0.0, 0.17, 0.5, 0.83, 0.999):
+            expected = masked_sample_reference(logits.cpu(), mask.cpu(), temperature=temperature, uniform=uniform)
+            actual = _checked_selection(cuda_module.masked_sample(
+                logits, mask, temperature, torch.tensor(uniform, dtype=torch.float64, device="cuda")))
+            assert actual.item() == expected
