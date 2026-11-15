@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.12.17"
+          python-version: ${{ matrix.python }}
+      # The lock resolves the CUDA build of PyTorch on Linux. It imports and runs
+      # on CPU; tests that need a GPU or the CUDA toolchain skip themselves.
+      - name: Install locked dependencies
+        run: uv sync --locked --extra models --extra grammar --extra benchmarks
+      - name: Run tests
+        run: uv run --locked pytest -q -ra
+
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.12.17"
+          python-version: "3.12"
+      - name: Build sdist, then the wheel from it
+        run: uv build
+      - name: Install the wheel without the checkout
+        run: |
+          uv venv --python 3.12 "$RUNNER_TEMP/wheel"
+          uv pip install --python "$RUNNER_TEMP/wheel/bin/python" dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel/bin/python" -I -c "import bitmask_speculation as bs; print(bs.__version__)"
+          "$RUNNER_TEMP/wheel/bin/bitmask-speculation" --help > /dev/null
