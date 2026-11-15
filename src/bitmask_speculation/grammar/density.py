@@ -8,6 +8,18 @@ if TYPE_CHECKING:
     from torch import Tensor
 
 
+_BYTE_BITS = None
+
+
+def _byte_bits():
+    """Set-bit count of every byte value, built once."""
+    global _BYTE_BITS
+    if _BYTE_BITS is None:
+        import torch
+        _BYTE_BITS = torch.tensor([value.bit_count() for value in range(256)], dtype=torch.int64)
+    return _BYTE_BITS
+
+
 def packed_mask_count(mask: "Tensor", vocab_size: int) -> int:
     """Count vocabulary bits, ignoring padding in the final 32-bit word.
 
@@ -28,11 +40,12 @@ def packed_mask_count(mask: "Tensor", vocab_size: int) -> int:
         raise ValueError("reference mask counting requires a CPU tensor")
     if mask.numel() != (vocab_size + 31) // 32:
         raise ValueError("mask word count must equal ceil(vocab_size / 32)")
-    words = mask.tolist()
-    # Python integers are unbounded; normalize signed words before bit_count.
-    count = sum((word & 0xFFFFFFFF).bit_count() for word in words[:-1])
+    # Full words: byte-wise lookup over the raw int32 storage (sign-agnostic).
+    body = torch.empty(mask.numel() - 1, dtype=torch.int32).copy_(mask[:-1]).view(torch.uint8)
+    count = int(_byte_bits()[body.to(torch.int64)].sum()) if body.numel() else 0
     tail_bits = vocab_size % 32 or 32
-    return count + (words[-1] & ((1 << tail_bits) - 1)).bit_count()
+    last = int(mask[-1]) & 0xFFFFFFFF
+    return count + (last & ((1 << tail_bits) - 1)).bit_count()
 
 
 def packed_mask_density(mask: "Tensor", vocab_size: int) -> float:
