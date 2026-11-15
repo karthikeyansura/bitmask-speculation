@@ -1,4 +1,4 @@
-"""Explicit single-row CUDA primitives; no implicit fallback or tensor copies."""
+"""Explicit CUDA primitives; no implicit fallback or tensor copies."""
 
 from ._extension import load_extension
 from ._validation import mask_input, selection_inputs, temperature_input
@@ -55,3 +55,15 @@ def masked_sample(logits, mask, *, temperature: float = 1.0, generator=None):
     native = load_extension()  # Build errors must not consume generator state.
     uniform = torch.rand((), dtype=torch.float64, device=logits.device, generator=generator)
     return _checked_selection(native.masked_sample(logits, mask, temperature, uniform))
+
+
+def batched_masked_reduce(logits, mask):
+    """Reduce [B,V] logits and [B,ceil(V/32)] masks: argmax, valid count, status per row.
+
+    Two launches regardless of B; outputs are owned [B] tensors. No host synchronization.
+    """
+    from ._validation import batched_selection_inputs
+    from .triton import BatchedMaskedReduction
+    batched_selection_inputs(logits, mask)
+    tokens, counts, status = load_extension().masked_reduce_batch(logits, mask)
+    return BatchedMaskedReduction(tokens, counts, status)

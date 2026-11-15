@@ -41,9 +41,7 @@ ncu --profile-from-start off --set basic --launch-count 2 \
   --iterations 1 --output /tmp/bitmask-compute-inputs
 ```
 
-Triton emits a partial reduction and a final reduction per call. CUDA's batched
-comparison invokes per-row primitives and stacking; adjust `--launch-count` when
-profiling that path. Profiling replay and instrumentation change execution cost;
+Triton and CUDA each emit a partial reduction and a final reduction per call. Profiling replay and instrumentation change execution cost;
 use the uninstrumented benchmark runner for latency comparisons.
 
 Counter access is a host permission independent of CUDA execution. A counter

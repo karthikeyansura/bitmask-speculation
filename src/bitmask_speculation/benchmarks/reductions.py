@@ -61,11 +61,7 @@ def reduction_operation(backend, scores, mask):
     if backend == 'cuda':
         from ..kernels._extension import load_extension
         native = load_extension()
-        def operation():
-            pairs = [native.masked_argmax(scores[i], mask[i]) for i in range(scores.shape[0])]
-            counts = [native.mask_count(mask[i], scores.shape[1]) for i in range(scores.shape[0])]
-            return torch.stack([p[0] for p in pairs]), torch.stack(counts), torch.stack([p[1] for p in pairs])
-        return operation
+        return lambda: tuple(native.masked_reduce_batch(scores, mask))
     if backend != 'triton':
         raise ValueError('unknown reduction backend')
     from ..kernels.triton import batched_masked_reduce

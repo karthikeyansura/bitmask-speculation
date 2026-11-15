@@ -279,8 +279,8 @@ The installed module `python -m bitmask_speculation.benchmarks` provides
 `reductions`, `decode` and `report`. Use `--help` on each subcommand.
 
 `reductions` computes equivalent masked argmax, exact count and status outputs
-with `torch`, `cuda` or `triton`. CUDA uses per-row native reductions plus stacking;
-Triton uses a batched reduction. Inputs are deterministic seeded float32 scores
+with `torch`, `cuda` or `triton`. CUDA and Triton each reduce the whole batch in
+two launches. Inputs are deterministic seeded float32 scores
 and Bernoulli mask bits, with token zero forced valid in every row. Padding bits
 are zero. Latency is per whole batch.
 
